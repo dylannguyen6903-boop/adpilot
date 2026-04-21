@@ -132,23 +132,22 @@ export default function DashboardPage() {
   // Margin banner
   const marginClass = margin?.marginStatus === 'CRITICAL' ? 'critical'
     : margin?.marginStatus === 'HEALTHY' ? 'healthy' : 'on-target';
-  const marginIcon = margin?.marginStatus === 'CRITICAL' ? '🔴'
-    : margin?.marginStatus === 'HEALTHY' ? '🟢' : '🟡';
+  const marginIcon = '';
 
-  const timeframeLabel = days === 1 ? 'Today' : `Last ${days} days`;
+  const timeframeLabel = days === 1 ? 'Hôm nay' : `${days} ngày qua`;
 
   return (
     <>
-      <Header title="Dashboard" subtitle={`${timeframeLabel} overview — performance at a glance`}>
+      <Header title="Tổng quan" subtitle={`Báo cáo ${timeframeLabel} — hiệu suất nhanh`}>
         <TimeframeSelector value={days} onChange={setDays} />
       </Header>
       <PageContainer>
         {/* Margin Alert */}
         {margin && (
           <div className={`margin-alert ${marginClass}`} id="margin-alert-banner">
-            <span className="margin-alert-icon">{marginIcon}</span>
+            <span className="margin-alert-icon"><span className={`status-dot ${marginClass}`}></span></span>
             <div>
-              <strong>Margin: {margin.marginPercent}</strong> — {margin.message}
+              <strong>Biên lợi nhuận: {margin.marginPercent}</strong> — {margin.message}
             </div>
           </div>
         )}
@@ -156,45 +155,37 @@ export default function DashboardPage() {
         {/* KPI Grid */}
         <div className="kpi-grid mb-lg">
           <div className="card kpi-card" id="kpi-total-spend">
-            <div className="kpi-icon" style={{ background: 'var(--accent-glow)', color: 'var(--accent-primary)' }}>💵</div>
             <div className="card-title">Total Spend</div>
             <div className="card-value">{formatCurrency(totalSpend)}</div>
             <div className="card-subtitle">{timeframeLabel}</div>
           </div>
           <div className="card kpi-card" id="kpi-revenue">
-            <div className="kpi-icon" style={{ background: 'var(--color-winner-bg)', color: 'var(--color-winner)' }}>📈</div>
             <div className="card-title">Shopify Revenue</div>
             <div className="card-value">{formatCurrency(shopifyRevenue)}</div>
             <div className="card-subtitle">{timeframeLabel}</div>
           </div>
           <div className="card kpi-card" id="kpi-profit">
-            <div className="kpi-icon" style={{ background: netProfit >= 0 ? 'var(--color-winner-bg)' : 'var(--color-kill-bg)', color: netProfit >= 0 ? 'var(--color-winner)' : 'var(--color-kill)' }}>
-              {netProfit >= 0 ? '💰' : '🔻'}
-            </div>
             <div className="card-title">Net Profit</div>
             <div className="card-value" style={{ color: netProfit >= 0 ? 'var(--color-winner)' : 'var(--color-kill)' }}>
               {formatCurrency(netProfit)}
             </div>
-            <div className="card-subtitle">Revenue − COGS − Ads</div>
+            <div className="card-subtitle">Doanh thu − Giá vốn − Phí Q/C</div>
           </div>
           <div className="card kpi-card" id="kpi-roas">
-            <div className="kpi-icon" style={{ background: 'var(--color-promising-bg)', color: 'var(--color-promising)' }}>🎯</div>
             <div className="card-title">True ROAS</div>
             <div className="card-value">{formatRoas(trueRoas)}</div>
-            <div className="card-subtitle">Shopify Revenue / Ad Spend</div>
+            <div className="card-subtitle">Doanh thu / Chi phí Q/C</div>
           </div>
           <div className="card kpi-card" id="kpi-cpa">
-            <div className="kpi-icon" style={{ background: 'var(--color-watch-bg)', color: 'var(--color-watch)' }}>📊</div>
             <div className="card-title">Avg CPA</div>
             <div className="card-value">{formatCurrency(avgCpa)}</div>
-            <div className="card-subtitle">{formatNumber(totalConversions)} conversions</div>
+            <div className="card-subtitle">{formatNumber(totalConversions)} chuyển đổi</div>
           </div>
           <div className="card kpi-card" id="kpi-active">
-            <div className="kpi-icon" style={{ background: 'var(--accent-glow)', color: 'var(--accent-primary)' }}>🚀</div>
-            <div className="card-title">Campaigns</div>
+            <div className="card-title">Active Campaigns</div>
             <div className="card-value">{activeCampaigns}</div>
             <div className="card-subtitle">
-              Active • {pausedCampaigns} paused
+              Đang chạy • {pausedCampaigns} tạm dừng
             </div>
           </div>
         </div>
@@ -204,7 +195,7 @@ export default function DashboardPage() {
           {/* Spend & CPA Trend */}
           <div className="card">
             <div className="card-header">
-              <div className="card-title">Spend & CPA Trend (7D)</div>
+              <div className="card-title">Xu hướng Spend & CPA (7N)</div>
             </div>
             <div className="chart-container">
               {trendData.length > 0 ? (
@@ -229,8 +220,7 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="empty-state">
-                  <div className="empty-state-icon">📉</div>
-                  <div className="empty-state-text">Sync data to see trends.</div>
+                  <div className="empty-state-text">Đồng bộ dữ liệu để xem xu hướng.</div>
                 </div>
               )}
             </div>
@@ -239,7 +229,7 @@ export default function DashboardPage() {
           {/* Campaign Distribution */}
           <div className="card">
             <div className="card-header">
-              <div className="card-title">Campaign Health</div>
+              <div className="card-title">Tình trạng chiến dịch</div>
             </div>
             <div className="chart-container">
               {pieData.length > 0 ? (
@@ -275,8 +265,7 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="empty-state">
-                  <div className="empty-state-icon">🥧</div>
-                  <div className="empty-state-text">Campaign data will appear after sync.</div>
+                  <div className="empty-state-text">Chưa có dữ liệu chiến dịch.</div>
                 </div>
               )}
             </div>

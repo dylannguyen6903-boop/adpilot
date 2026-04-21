@@ -6,25 +6,24 @@ import { usePathname } from 'next/navigation';
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
   section?: string;
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊', section: 'overview' },
-  { href: '/campaigns', label: 'Campaigns', icon: '📋', section: 'overview' },
-  { href: '/plan', label: 'Action Plan', icon: '✅', section: 'tools' },
-  { href: '/budget', label: 'Budget Allocator', icon: '💰', section: 'tools' },
-  { href: '/settings', label: 'Settings', icon: '⚙️', section: 'system' },
+  { href: '/dashboard', label: 'Tổng quan', section: 'overview' },
+  { href: '/campaigns', label: 'Chiến dịch', section: 'overview' },
+  { href: '/plan', label: 'Kế hoạch', section: 'tools' },
+  { href: '/budget', label: 'Phân bổ ngân sách', section: 'tools' },
+  { href: '/settings', label: 'Cài đặt', section: 'system' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   const sections = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'tools', label: 'Tools' },
-    { key: 'system', label: 'System' },
+    { key: 'overview', label: 'Tổng quan' },
+    { key: 'tools', label: 'Công cụ' },
+    { key: 'system', label: 'Hệ thống' },
   ];
 
   return (
@@ -54,7 +53,6 @@ export default function Sidebar() {
                     className={`sidebar-link ${isActive ? 'active' : ''}`}
                     id={`nav-${item.href.slice(1)}`}
                   >
-                    <span className="sidebar-link-icon">{item.icon}</span>
                     <span>{item.label}</span>
                   </Link>
                 );
@@ -67,7 +65,7 @@ export default function Sidebar() {
       <div className="sidebar-footer">
         <div className="sidebar-sync-status">
           <span className="sidebar-sync-dot" />
-          <span>Auto-sync: 4h</span>
+          <span>Tự động đồng bộ: 4h</span>
         </div>
       </div>
     </aside>

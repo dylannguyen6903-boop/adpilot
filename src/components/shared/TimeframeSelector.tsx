@@ -9,9 +9,9 @@ interface TimeframeSelectorProps {
 }
 
 const DEFAULT_OPTIONS = [
-  { label: 'Today', value: 1 },
-  { label: '3D', value: 3 },
-  { label: '7D', value: 7 },
+  { label: 'Hôm nay', value: 1 },
+  { label: '3N', value: 3 },
+  { label: '7N', value: 7 },
 ];
 
 export default function TimeframeSelector({

@@ -120,7 +120,7 @@ export default function SettingsPage() {
       }),
     });
     if (putRes.ok) {
-      setProfileMsg('✅ Profile saved successfully!');
+      setProfileMsg('Lưu hồ sơ thành công!');
     } else {
       const err = await putRes.json();
       setProfileMsg(`❌ ${err.error || 'Save failed'}`);
@@ -137,7 +137,7 @@ export default function SettingsPage() {
     });
     const data = await res.json();
     if (res.ok) {
-      setFbMsg('✅ Facebook connected! Token validated.');
+      setFbMsg('Kết nối Facebook thành công! Token đã được xác thực.');
       setFbToken('');
       setFbAccountId('');
       refetchConnections();
@@ -148,7 +148,7 @@ export default function SettingsPage() {
 
   const handleRemoveFb = async (id: string) => {
     setFbMsg('');
-    if (!confirm('Are you sure you want to remove this connection?')) return;
+    if (!confirm('Bạn có chắc chắn muốn xóa kết nối này?')) return;
     
     const newAccounts = fbAccounts.filter(a => a.id !== id);
     const res = await fetch('/api/settings/connections', {
@@ -158,7 +158,7 @@ export default function SettingsPage() {
     });
     const data = await res.json();
     if (res.ok) {
-      setFbMsg('✅ Connection removed.');
+      setFbMsg('Đã xóa kết nối.');
       refetchConnections();
     } else {
       setFbMsg(`❌ ${data.error || 'Removal failed'}`);
@@ -174,7 +174,7 @@ export default function SettingsPage() {
     });
     const data = await res.json();
     if (res.ok) {
-      setShopifyMsg('✅ Shopify connected!');
+      setShopifyMsg('Kết nối Shopify thành công!');
       setShopifyToken('');
       refetchConnections();
     } else {
@@ -184,26 +184,26 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Header title="Settings" subtitle="Configure your business profile and API connections" />
+      <Header title="Cài đặt" subtitle="Cấu hình hồ sơ doanh nghiệp và kết nối API" />
       <PageContainer>
         <div className="grid-2">
           {/* ── Business Profile ── */}
           <div className="card" id="settings-profile">
             <div className="card-header">
-              <div className="card-title">📦 Business Profile</div>
+              <div className="card-title">Hồ Sơ Doanh Nghiệp</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
               <div className="form-group">
-                <label className="form-label">Store Name</label>
+                <label className="form-label">Tên cửa hàng</label>
                 <input className="form-input" type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Average Order Value (AOV)</label>
+                <label className="form-label">Giá trị trung bình đơn hàng (AOV)</label>
                 <input className="form-input" type="number" value={aov} onChange={(e) => setAov(Number(e.target.value))} />
-                <span className="form-helper">Average revenue per order in USD</span>
+                <span className="form-helper">Doanh thu trung bình mỗi đơn hàng (USD)</span>
               </div>
               <div className="form-group">
-                <label className="form-label">Target Margin (Min — Max)</label>
+                <label className="form-label">Biên lợi nhuận mục tiêu (Tối thiểu — Tối đa)</label>
                 <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
                   <input className="form-input" type="number" value={marginMin} onChange={(e) => setMarginMin(Number(e.target.value))} style={{ width: 80 }} />
                   <span className="card-subtitle">% —</span>
@@ -212,31 +212,31 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">COGS Rate (%)</label>
+                <label className="form-label">Tỷ lệ giá vốn hàng bán/Doanh thu (COGS %)</label>
                 <input className="form-input" type="number" value={cogsRate} onChange={(e) => setCogsRate(Number(e.target.value))} />
-                <span className="form-helper">Cost of goods as % of revenue</span>
+                <span className="form-helper">Giá vốn hàng bán tính theo % doanh thu</span>
               </div>
               <div className="form-group">
-                <label className="form-label">Target CPA ($)</label>
+                <label className="form-label">CPA Mục tiêu ($)</label>
                 <input className="form-input" type="number" value={targetCpa} onChange={(e) => setTargetCpa(Number(e.target.value))} />
               </div>
               <div className="form-group">
-                <label className="form-label">Returning Customer Rate (%)</label>
+                <label className="form-label">Tỷ lệ khách hàng quay lại (%)</label>
                 <input className="form-input" type="number" value={returningRate} onChange={(e) => setReturningRate(Number(e.target.value))} />
               </div>
               <div className="form-group">
-                <label className="form-label">Avg Repeat Orders</label>
+                <label className="form-label">Số đơn trung bình của khách hàng lặp lại</label>
                 <input className="form-input" type="number" value={repeatOrders} step={0.1} onChange={(e) => setRepeatOrders(Number(e.target.value))} />
               </div>
 
               {profileMsg && (
                 <div style={{ fontSize: 'var(--text-sm)', color: profileMsg.startsWith('✅') ? 'var(--color-winner)' : 'var(--color-kill)' }}>
-                  {profileMsg}
+                  {profileMsg.replace('✅ ', '').replace('❌ ', '')}
                 </div>
               )}
 
               <button className={`btn btn-primary ${savingProfile ? 'syncing' : ''}`} onClick={handleSaveProfile} disabled={savingProfile} id="btn-save-profile">
-                {savingProfile ? 'Saving...' : 'Save Profile'}
+                {savingProfile ? 'Đang lưu...' : 'Lưu Hồ Sơ'}
               </button>
             </div>
           </div>
@@ -246,23 +246,23 @@ export default function SettingsPage() {
             {/* Facebook */}
             <div className="card" id="settings-facebook">
               <div className="card-header">
-                <div className="card-title">📘 Facebook Connection</div>
+                <div className="card-title">Kết nối Facebook</div>
                 <span className={`status-badge ${connections?.facebook.configured ? 'winner' : 'kill'}`}>
                   <span className="status-dot" />
-                  {connections?.facebook.configured ? 'Connected' : 'Disconnected'}
+                  {connections?.facebook.configured ? 'Đã kết nối' : 'Chưa kết nối'}
                 </span>
               </div>
 
               {connections?.facebook.lastSync && (
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>
-                  Last sync: {timeAgo(connections.facebook.lastSync)} — {connections.facebook.lastSyncStatus}
+                  Đồng bộ lần cuối: {timeAgo(connections.facebook.lastSync)} — {connections.facebook.lastSyncStatus}
                 </div>
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
                 {fbAccounts.length > 0 && (
                   <div style={{ borderBottom: '1px solid var(--border-primary)', paddingBottom: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
-                    <div style={{ marginBottom: 'var(--space-sm)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', fontWeight: 600 }}>Active Accounts:</div>
+                    <div style={{ marginBottom: 'var(--space-sm)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', fontWeight: 600 }}>Tài khoản đang hoạt động:</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
                       {fbAccounts.map((acc, idx) => (
                         <div key={acc.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-tertiary)', padding: 'var(--space-sm)', borderRadius: 'var(--radius-sm)' }}>
@@ -270,7 +270,7 @@ export default function SettingsPage() {
                             <div style={{ fontWeight: 600 }}>{acc.adAccountId}</div>
                             <div style={{ color: 'var(--text-muted)' }}>{acc.accessToken.substring(0, 15)}...</div>
                           </div>
-                          <button className="btn btn-sm btn-danger" onClick={() => handleRemoveFb(acc.id)}>Remove</button>
+                          <button className="btn btn-sm btn-danger" onClick={() => handleRemoveFb(acc.id)}>Xóa</button>
                         </div>
                       ))}
                     </div>
@@ -278,21 +278,21 @@ export default function SettingsPage() {
                 )}
 
                 <div className="form-group">
-                  <label className="form-label">New Ad Account ID</label>
+                  <label className="form-label">ID Tài khoản quảng cáo mới</label>
                   <input className="form-input" type="text" placeholder="act_123456789" value={fbAccountId} onChange={(e) => setFbAccountId(e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">System User Access Token</label>
+                  <label className="form-label">Chuỗi truy cập người dùng hệ thống (Token)</label>
                   <input className="form-input" type="password" placeholder="EAABsbCS1iHg..." value={fbToken} onChange={(e) => setFbToken(e.target.value)} />
                 </div>
                 
                 {fbMsg && (
                   <div style={{ fontSize: 'var(--text-sm)', color: fbMsg.startsWith('✅') ? 'var(--color-winner)' : 'var(--color-kill)' }}>
-                    {fbMsg}
+                    {fbMsg.replace('✅ ', '').replace('❌ ', '')}
                   </div>
                 )}
                 <button className="btn btn-primary" onClick={handleAddFb} disabled={!fbToken || !fbAccountId || savingConnections} id="btn-connect-fb">
-                  + Add Connection
+                  + Thêm Kết Nối
                 </button>
               </div>
             </div>
@@ -300,22 +300,22 @@ export default function SettingsPage() {
             {/* Shopify */}
             <div className="card" id="settings-shopify">
               <div className="card-header">
-                <div className="card-title">🟢 Shopify Connection</div>
+                <div className="card-title">Kết nối Shopify</div>
                 <span className={`status-badge ${connections?.shopify.configured ? 'winner' : 'kill'}`}>
                   <span className="status-dot" />
-                  {connections?.shopify.configured ? 'Connected' : 'Disconnected'}
+                  {connections?.shopify.configured ? 'Đã kết nối' : 'Chưa kết nối'}
                 </span>
               </div>
 
               {connections?.shopify.lastSync && (
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>
-                  Last sync: {timeAgo(connections.shopify.lastSync)} — {connections.shopify.lastSyncStatus}
+                  Đồng bộ lần cuối: {timeAgo(connections.shopify.lastSync)} — {connections.shopify.lastSyncStatus}
                 </div>
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
                 <div className="form-group">
-                  <label className="form-label">Store Domain</label>
+                  <label className="form-label">Tên miền cửa hàng</label>
                   <input className="form-input" type="text" placeholder="frenzidea.myshopify.com" value={shopifyDomain} onChange={(e) => setShopifyDomain(e.target.value)} />
                 </div>
                 <div className="form-group">
@@ -324,11 +324,11 @@ export default function SettingsPage() {
                 </div>
                 {shopifyMsg && (
                   <div style={{ fontSize: 'var(--text-sm)', color: shopifyMsg.startsWith('✅') ? 'var(--color-winner)' : 'var(--color-kill)' }}>
-                    {shopifyMsg}
+                    {shopifyMsg.replace('✅ ', '').replace('❌ ', '')}
                   </div>
                 )}
                 <button className="btn btn-primary" onClick={handleConnectShopify} disabled={!shopifyDomain || !shopifyToken || savingConnections} id="btn-connect-shopify">
-                  Connect Shopify
+                  Kết nối Shopify
                 </button>
               </div>
             </div>
@@ -336,22 +336,22 @@ export default function SettingsPage() {
             {/* Decision Thresholds */}
             <div className="card" id="settings-thresholds">
               <div className="card-header">
-                <div className="card-title">🎛️ Decision Thresholds</div>
+                <div className="card-title">Ngưỡng Phân Loại</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
                 <div className="form-group">
-                  <label className="form-label">Winner Score Threshold</label>
+                  <label className="form-label">Ngưỡng điểm Winner</label>
                   <input className="form-input" type="number" value={thresholdWinner} step={0.05} onChange={(e) => setThresholdWinner(Number(e.target.value))} />
-                  <span className="form-helper">Score ≥ this = WINNER (default: 0.7)</span>
+                  <span className="form-helper">Điểm ≥ ngưỡng này = WINNER (mặc định: 0.7)</span>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Promising Score Threshold</label>
+                  <label className="form-label">Ngưỡng điểm Promising</label>
                   <input className="form-input" type="number" value={thresholdPromising} step={0.05} onChange={(e) => setThresholdPromising(Number(e.target.value))} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Watch Score Threshold</label>
+                  <label className="form-label">Ngưỡng điểm Watch</label>
                   <input className="form-input" type="number" value={thresholdWatch} step={0.05} onChange={(e) => setThresholdWatch(Number(e.target.value))} />
-                  <span className="form-helper">Score &lt; this = KILL (default: 0.2)</span>
+                  <span className="form-helper">Điểm &lt; ngưỡng này = KILL (mặc định: 0.2)</span>
                 </div>
               </div>
             </div>
@@ -359,18 +359,18 @@ export default function SettingsPage() {
             {/* AI Configuration */}
             <div className="card" id="settings-ai">
               <div className="card-header">
-                <div className="card-title">🧠 AI Configuration</div>
+                <div className="card-title">Cấu hình AI</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
                 <div className="form-group">
-                  <label className="form-label">Provider</label>
+                  <label className="form-label">Nhà cung cấp</label>
                   <select className="form-input" value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
                     <option value="openai">OpenAI</option>
                   </select>
-                  <span className="form-helper">GPT-4o-mini recommended for cost-efficiency</span>
+                  <span className="form-helper">Khuyên dùng GPT-4o-mini để tối ưu chi phí</span>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Model</label>
+                  <label className="form-label">Mô hình</label>
                   <select className="form-input" value={aiModel} onChange={(e) => setAiModel(e.target.value)}>
                     <option value="gpt-4o-mini">GPT-4o-mini ($0.001/req)</option>
                     <option value="gpt-4o">GPT-4o ($0.02/req)</option>
@@ -385,11 +385,11 @@ export default function SettingsPage() {
                     value={aiApiKey} 
                     onChange={(e) => setAiApiKey(e.target.value)} 
                   />
-                  <span className="form-helper">Get your key from platform.openai.com/api-keys</span>
+                  <span className="form-helper">Lấy từ platform.openai.com/api-keys</span>
                 </div>
                 {aiMsg && (
                   <div style={{ fontSize: 'var(--text-sm)', color: aiMsg.startsWith('✅') ? 'var(--color-winner)' : 'var(--color-kill)' }}>
-                    {aiMsg}
+                    {aiMsg.replace('✅ ', '').replace('❌ ', '')}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
@@ -407,19 +407,19 @@ export default function SettingsPage() {
                         });
                         const data = await res.json();
                         if (data.valid) {
-                          setAiMsg('✅ Connection successful! AI is ready.');
+                          setAiMsg('Kết nối thành công! AI đã sẵn sàng.');
                         } else {
-                          setAiMsg(`❌ ${data.error || 'Connection failed'}`);
+                          setAiMsg(`${data.error || 'Kết nối thất bại'}`);
                         }
                       } catch {
-                        setAiMsg('❌ Test failed');
+                        setAiMsg('Kiểm tra thất bại');
                       } finally {
                         setAiTesting(false);
                       }
                     }}
                     id="btn-test-ai"
                   >
-                    {aiTesting ? '⟳ Testing...' : '🧪 Test Connection'}
+                    {aiTesting ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
                   </button>
                   <button 
                     className="btn btn-primary" 
@@ -442,14 +442,14 @@ export default function SettingsPage() {
                         }),
                       });
                       if (res.ok) {
-                        setAiMsg('✅ AI config saved!');
+                        setAiMsg('Lưu cấu hình AI thành công!');
                       } else {
-                        setAiMsg('❌ Save failed');
+                        setAiMsg('Lưu thất bại');
                       }
                     }}
                     id="btn-save-ai"
                   >
-                    💾 Save AI Config
+                    Lưu cấu hình AI
                   </button>
                 </div>
               </div>

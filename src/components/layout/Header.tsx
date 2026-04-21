@@ -33,13 +33,13 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
           setSyncError({
             lastSync: fb?.lastSync || shopify?.lastSync,
             status: 'FAILED',
-            error: fb?.lastError || shopify?.lastError || 'Sync failed. Check Settings → Connections.',
+            error: fb?.lastError || shopify?.lastError || 'Đồng bộ thất bại. Kiểm tra Cài đặt → Kết nối.',
           });
         } else if (fb?.lastSyncStatus === 'PARTIAL') {
           setSyncError({
             lastSync: fb?.lastSync,
             status: 'PARTIAL',
-            error: fb?.lastError || 'Some accounts failed to sync.',
+            error: fb?.lastError || 'Một số tài khoản không thể đồng bộ.',
           });
         }
       })
@@ -71,23 +71,23 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
       }
 
       if (fbOk && shopifyOk) {
-        setSyncResult('✅ Synced successfully');
+        setSyncResult('Đồng bộ thành công');
         setSyncError(null);
         setErrorDismissed(false);
       } else if (fbOk || shopifyOk) {
-        setSyncResult('⚠️ Partial sync');
+        setSyncResult('Đồng bộ một phần');
         setSyncError({
           lastSync: new Date().toISOString(),
           status: 'PARTIAL',
-          error: errorDetail || (!fbOk ? 'Facebook sync failed' : 'Shopify sync failed'),
+          error: errorDetail || (!fbOk ? 'Lỗi đồng bộ Facebook' : 'Lỗi đồng bộ Shopify'),
         });
         setErrorDismissed(false);
       } else {
-        setSyncResult('❌ Sync failed');
+        setSyncResult('Đồng bộ thất bại');
         setSyncError({
           lastSync: new Date().toISOString(),
           status: 'FAILED',
-          error: errorDetail || 'Both Facebook and Shopify sync failed. Check API tokens in Settings.',
+          error: errorDetail || 'Lỗi đồng bộ Facebook và Shopify. Kiểm tra API token.',
         });
         setErrorDismissed(false);
       }
@@ -96,7 +96,7 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
       setTimeout(() => window.location.reload(), 2000);
     } catch (err) {
       console.error('Sync error:', err);
-      setSyncResult('❌ Error');
+      setSyncResult('Lỗi');
     } finally {
       setTimeout(() => setSyncing(false), 1000);
     }
@@ -109,11 +109,11 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
         <div className={`sync-error-banner ${syncError.status === 'FAILED' ? 'critical' : 'warning'}`} id="sync-error-banner">
           <div className="sync-error-content">
             <span className="sync-error-icon">
-              {syncError.status === 'FAILED' ? '🔴' : '🟡'}
+              <span className={`status-dot ${syncError.status === 'FAILED' ? 'kill' : 'watch'}`} />
             </span>
             <div className="sync-error-text">
               <strong>
-                {syncError.status === 'FAILED' ? 'Sync Failed' : 'Partial Sync'}
+                {syncError.status === 'FAILED' ? 'Lỗi Đồng Bộ' : 'Đồng Bộ Một Phần'}
               </strong>
               <span>{syncError.error}</span>
             </div>
@@ -148,8 +148,8 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
           {syncResult && (
             <span style={{
               fontSize: 'var(--text-xs)',
-              color: syncResult.includes('✅') ? 'var(--color-winner)' 
-                   : syncResult.includes('⚠️') ? 'var(--color-watch)' 
+              color: syncResult.includes('thành công') ? 'var(--color-winner)' 
+                   : syncResult.includes('một phần') ? 'var(--color-watch)' 
                    : 'var(--color-kill)',
               marginRight: 'var(--space-sm)',
               animation: 'fadeIn 0.3s ease',
@@ -162,10 +162,10 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
             onClick={handleRefresh}
             disabled={syncing}
             id="btn-refresh-now"
-            title="Sync data from Facebook & Shopify"
+            title="Đồng bộ dữ liệu Facebook & Shopify"
           >
-            <span className="btn-icon">{syncing ? '⟳' : '🔄'}</span>
-            <span>{syncing ? 'Syncing...' : 'Refresh Now'}</span>
+            <span className="btn-icon">{syncing ? '⟳' : '↻'}</span>
+            {!syncing && <span>Đồng bộ</span>}
           </button>
         </div>
       </header>

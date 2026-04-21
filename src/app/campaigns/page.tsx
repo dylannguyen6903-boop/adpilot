@@ -38,12 +38,12 @@ interface CampaignsResponse {
 }
 
 const STATUS_FILTERS: Array<{ value: CampaignStatus | 'ALL'; label: string; icon: string }> = [
-  { value: 'ALL', label: 'All', icon: '' },
-  { value: 'WINNER', label: 'Winner', icon: '🟢' },
-  { value: 'PROMISING', label: 'Promising', icon: '🟡' },
-  { value: 'WATCH', label: 'Watch', icon: '🟠' },
-  { value: 'KILL', label: 'Kill', icon: '🔴' },
-  { value: 'LEARNING', label: 'Learning', icon: '⚫' },
+  { value: 'ALL', label: 'Tất cả', icon: '' },
+  { value: 'WINNER', label: 'Winner', icon: '' },
+  { value: 'PROMISING', label: 'Promising', icon: '' },
+  { value: 'WATCH', label: 'Watch', icon: '' },
+  { value: 'KILL', label: 'Kill', icon: '' },
+  { value: 'LEARNING', label: 'Learning', icon: '' },
 ];
 
 type SortKey = 'spend' | 'conversions' | 'cpa' | 'ctr' | 'performance_score';
@@ -57,7 +57,7 @@ export default function CampaignsPage() {
   const { data, loading } = useApiData<CampaignsResponse>(`/api/facebook/campaigns?days=${days}`);
 
   const campaigns = data?.campaigns || [];
-  const timeframeLabel = days === 1 ? 'Today' : `Last ${days} days`;
+  const timeframeLabel = days === 1 ? 'Hôm nay' : `${days} ngày qua`;
 
   // Filter
   const filtered = statusFilter === 'ALL'
@@ -87,7 +87,7 @@ export default function CampaignsPage() {
 
   return (
     <>
-      <Header title="Campaigns" subtitle={`${campaigns.length} campaigns — ${timeframeLabel}`}>
+      <Header title="Chiến dịch" subtitle={`${campaigns.length} chiến dịch — ${timeframeLabel}`}>
         <TimeframeSelector value={days} onChange={setDays} />
       </Header>
       <PageContainer>
@@ -114,19 +114,18 @@ export default function CampaignsPage() {
 
         {/* Table */}
         {loading ? (
-          <div className="loading-page"><div className="loading-spinner lg" /><span>Loading campaigns...</span></div>
+          <div className="loading-page"><div className="loading-spinner lg" /><span>Đang tải chiến dịch...</span></div>
         ) : sorted.length === 0 ? (
           <div className="card">
             <div className="empty-state" style={{ padding: 'var(--space-2xl)' }}>
-              <div className="empty-state-icon">📋</div>
-              <div className="empty-state-title">No Campaigns</div>
+              <div className="empty-state-title">Chưa có chiến dịch</div>
               <div className="empty-state-text">
                 {campaigns.length === 0
-                  ? 'Connect your Facebook Ads account in Settings and sync your campaigns.'
-                  : `No campaigns matching filter "${statusFilter}".`}
+                  ? 'Kết nối tài khoản Facebook Ads trong Cài đặt và tiến hành đồng bộ.'
+                  : `Không có chiến dịch nào khớp với bộ lọc "${statusFilter}".`}
               </div>
               {campaigns.length === 0 && (
-                <Link href="/settings" className="btn btn-primary mt-md">Go to Settings</Link>
+                <Link href="/settings" className="btn btn-primary mt-md">Đến trang Cài đặt</Link>
               )}
             </div>
           </div>
@@ -135,16 +134,16 @@ export default function CampaignsPage() {
             <table className="data-table" id="campaigns-table">
               <thead>
                 <tr>
-                  <th>Campaign</th>
-                  <th>Status</th>
+                  <th>Chiến dịch</th>
+                  <th>Trạng thái</th>
                   <th onClick={() => handleSort('spend')} style={{ cursor: 'pointer' }}>Spend{sortIndicator('spend')}</th>
                   <th onClick={() => handleSort('conversions')} style={{ cursor: 'pointer' }}>Conv.{sortIndicator('conversions')}</th>
                   <th onClick={() => handleSort('cpa')} style={{ cursor: 'pointer' }}>CPA{sortIndicator('cpa')}</th>
-                  <th>LTV-Adj CPA</th>
+                  <th>CPA (LTV)</th>
                   <th onClick={() => handleSort('ctr')} style={{ cursor: 'pointer' }}>CTR{sortIndicator('ctr')}</th>
                   <th>ROAS</th>
                   <th>Margin</th>
-                  <th onClick={() => handleSort('performance_score')} style={{ cursor: 'pointer' }}>Score{sortIndicator('performance_score')}</th>
+                  <th onClick={() => handleSort('performance_score')} style={{ cursor: 'pointer' }}>Điểm{sortIndicator('performance_score')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -157,7 +156,7 @@ export default function CampaignsPage() {
                           <Link href={`/campaigns/${c.campaign_id}`} style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
                             {c.campaign_name}
                           </Link>
-                          {isPaused && <span className="paused-badge">Paused</span>}
+                          {isPaused && <span className="paused-badge">Tạm dừng</span>}
                         </div>
                       </td>
                       <td><StatusBadge status={c.status || 'LEARNING'} /></td>

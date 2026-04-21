@@ -1,6 +1,6 @@
 /* ============================================
    AdPilot — Design System
-   Dark-first, glassmorphism, premium analytics UI
+   Apple-inspired dark mode, clean & premium
    ============================================ */
 
 /* ---- Google Font (loaded via next/font in layout) ---- */
@@ -9,50 +9,50 @@
    1. CSS Custom Properties (Design Tokens)
    ============================================ */
 :root {
-  /* ---- Color Palette ---- */
-  --bg-primary:       #0b0e14;
-  --bg-secondary:     #111827;
-  --bg-tertiary:      #1a2035;
-  --bg-card:          rgba(17, 24, 39, 0.7);
-  --bg-card-hover:    rgba(26, 32, 53, 0.85);
-  --bg-glass:         rgba(255, 255, 255, 0.03);
+  /* ---- Color Palette (Apple Dark) ---- */
+  --bg-primary:       #000000;
+  --bg-secondary:     #1c1c1e;
+  --bg-tertiary:      #2c2c2e;
+  --bg-card:          rgba(28, 28, 30, 0.95);
+  --bg-card-hover:    rgba(44, 44, 46, 0.95);
+  --bg-glass:         rgba(255, 255, 255, 0.04);
 
-  --border-primary:   rgba(255, 255, 255, 0.06);
-  --border-active:    rgba(99, 102, 241, 0.4);
+  --border-primary:   rgba(255, 255, 255, 0.08);
+  --border-active:    rgba(10, 132, 255, 0.5);
 
-  --text-primary:     #f1f5f9;
-  --text-secondary:   #94a3b8;
-  --text-muted:       #64748b;
-  --text-inverse:     #0b0e14;
+  --text-primary:     #ffffff;
+  --text-secondary:   rgba(235, 235, 245, 0.8);
+  --text-muted:       rgba(235, 235, 245, 0.4);
+  --text-inverse:     #000000;
 
-  /* ---- Brand / Accent ---- */
-  --accent-primary:   #6366f1;    /* Indigo */
-  --accent-hover:     #818cf8;
-  --accent-glow:      rgba(99, 102, 241, 0.15);
-  --accent-gradient:  linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+  /* ---- Brand / Accent (Apple Blue) ---- */
+  --accent-primary:   #0a84ff;
+  --accent-hover:     #409cff;
+  --accent-glow:      rgba(10, 132, 255, 0.15);
+  --accent-gradient:  linear-gradient(135deg, #0a84ff 0%, #5ac8fa 100%);
 
   /* ---- Status Colors ---- */
-  --color-winner:     #22c55e;
-  --color-winner-bg:  rgba(34, 197, 94, 0.12);
-  --color-promising:  #eab308;
-  --color-promising-bg: rgba(234, 179, 8, 0.12);
-  --color-watch:      #f97316;
-  --color-watch-bg:   rgba(249, 115, 22, 0.12);
-  --color-kill:       #ef4444;
-  --color-kill-bg:    rgba(239, 68, 68, 0.12);
-  --color-learning:   #6b7280;
-  --color-learning-bg: rgba(107, 114, 128, 0.12);
+  --color-winner:     #30d158;
+  --color-winner-bg:  rgba(48, 209, 88, 0.12);
+  --color-promising:  #ffd60a;
+  --color-promising-bg: rgba(255, 214, 10, 0.12);
+  --color-watch:      #ff9f0a;
+  --color-watch-bg:   rgba(255, 159, 10, 0.12);
+  --color-kill:       #ff453a;
+  --color-kill-bg:    rgba(255, 69, 58, 0.12);
+  --color-learning:   #8e8e93;
+  --color-learning-bg: rgba(142, 142, 147, 0.12);
 
   /* ---- Margin Status ---- */
-  --margin-critical:  #ef4444;
-  --margin-target:    #eab308;
-  --margin-healthy:   #22c55e;
+  --margin-critical:  #ff453a;
+  --margin-target:    #ffd60a;
+  --margin-healthy:   #30d158;
 
   /* ---- Semantic ---- */
-  --color-success:    #22c55e;
-  --color-warning:    #eab308;
-  --color-error:      #ef4444;
-  --color-info:       #3b82f6;
+  --color-success:    #30d158;
+  --color-warning:    #ffd60a;
+  --color-error:      #ff453a;
+  --color-info:       #0a84ff;
 
   /* ---- Spacing Scale ---- */
   --space-xs:   4px;
@@ -64,8 +64,8 @@
   --space-3xl:  64px;
 
   /* ---- Typography ---- */
-  --font-sans:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono:   'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-sans:   'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  --font-mono:   'SF Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 
   --text-xs:     0.75rem;     /* 12px */
   --text-sm:     0.8125rem;   /* 13px */
@@ -85,29 +85,29 @@
   --leading-normal: 1.5;
   --leading-relaxed: 1.625;
 
-  /* ---- Border Radius ---- */
-  --radius-sm:   6px;
-  --radius-md:   10px;
-  --radius-lg:   14px;
-  --radius-xl:   20px;
+  /* ---- Border Radius (Apple-rounded) ---- */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   22px;
   --radius-full: 9999px;
 
-  /* ---- Shadows ---- */
-  --shadow-sm:   0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg:   0 8px 24px rgba(0, 0, 0, 0.5);
+  /* ---- Shadows (Subtle Apple depth) ---- */
+  --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md:   0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-lg:   0 10px 30px rgba(0, 0, 0, 0.6);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
   /* ---- Layout ---- */
-  --sidebar-width:      260px;
+  --sidebar-width:      240px;
   --sidebar-collapsed:  72px;
-  --header-height:      64px;
+  --header-height:      56px;
   --page-max-width:     1440px;
 
-  /* ---- Transitions ---- */
-  --transition-fast:    150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base:    250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow:    400ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* ---- Transitions (Apple-smooth) ---- */
+  --transition-fast:    150ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  --transition-base:    250ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  --transition-slow:    400ms cubic-bezier(0.25, 0.1, 0.25, 1);
   --transition-spring:  500ms cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ---- Z-Index ---- */
@@ -385,9 +385,9 @@ ul, ol {
   left: var(--sidebar-width);
   right: 0;
   height: var(--header-height);
-  background: rgba(11, 14, 20, 0.8);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-primary);
   display: flex;
   align-items: center;

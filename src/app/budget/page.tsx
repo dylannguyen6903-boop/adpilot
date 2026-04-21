@@ -86,12 +86,12 @@ export default function BudgetAllocatorPage() {
 
   return (
     <>
-      <Header title="Budget Allocator" subtitle="Optimize your daily ad spend allocation" />
+      <Header title="Phân bổ ngân sách" subtitle="Tối ưu hóa phân bổ chi tiêu quảng cáo hàng ngày" />
       <PageContainer>
         {/* Budget Input */}
         <div className="card mb-lg">
           <div className="card-header">
-            <div className="card-title">Total Daily Budget</div>
+            <div className="card-title">Tổng ngân sách hàng ngày</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-xs)' }}>
@@ -104,7 +104,7 @@ export default function BudgetAllocatorPage() {
                 style={{ width: 120, fontSize: 'var(--text-2xl)', fontWeight: 700, textAlign: 'center' }}
                 id="budget-input"
               />
-              <span className="card-subtitle">/ day</span>
+              <span className="card-subtitle">/ ngày</span>
             </div>
 
             <div style={{ display: 'flex', gap: 'var(--space-xs)', flexWrap: 'wrap' }}>
@@ -125,7 +125,7 @@ export default function BudgetAllocatorPage() {
               disabled={loading}
               id="btn-allocate"
             >
-              {loading ? '⟳ Calculating...' : '✨ Calculate Allocation'}
+              {loading ? 'Đang tính toán...' : 'Tính toán phân bổ'}
             </button>
           </div>
         </div>
@@ -136,33 +136,33 @@ export default function BudgetAllocatorPage() {
             {/* Projection KPIs */}
             <div className="kpi-grid mb-lg">
               <div className="card kpi-card">
-                <div className="card-title">Projected Margin</div>
+                <div className="card-title">Biên Lợi Nhuận Dự Kiến</div>
                 <div className="card-value" style={{
                   color: result.projectedMargin >= 0.17 ? 'var(--color-winner)' : 'var(--color-kill)'
                 }}>
                   {formatPercent(result.projectedMargin)}
                 </div>
-                <div className="card-subtitle">Target: 17-20%</div>
+                <div className="card-subtitle">Mục tiêu: 17-20%</div>
               </div>
               <div className="card kpi-card">
-                <div className="card-title">Projected ROAS</div>
+                <div className="card-title">ROAS Dự Kiến</div>
                 <div className="card-value">{result.projectedRoas ? `${result.projectedRoas.toFixed(2)}x` : '—'}</div>
               </div>
               <div className="card kpi-card">
-                <div className="card-title">Projected CPA</div>
+                <div className="card-title">CPA Dự Kiến</div>
                 <div className="card-value">{formatCurrency(result.projectedCpa)}</div>
               </div>
               <div className="card kpi-card">
-                <div className="card-title">Winner Budget %</div>
+                <div className="card-title">Ngân Sách Cho Winner</div>
                 <div className="card-value">{result.budgetUtilization.toFixed(0)}%</div>
-                <div className="card-subtitle">of budget to Winners</div>
+                <div className="card-subtitle">% ngân sách cho Winner</div>
               </div>
             </div>
 
             {/* Charts */}
             <div className="grid-2 mb-lg">
               <div className="card">
-                <div className="card-header"><div className="card-title">Current vs Recommended</div></div>
+                <div className="card-header"><div className="card-title">Hiện tại vs Đề xuất</div></div>
                 <div className="chart-container">
                   {barData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -180,13 +180,13 @@ export default function BudgetAllocatorPage() {
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="empty-state"><div className="empty-state-text">No eligible campaigns</div></div>
+                    <div className="empty-state"><div className="empty-state-text">Không có chiến dịch đủ điều kiện</div></div>
                   )}
                 </div>
               </div>
 
               <div className="card">
-                <div className="card-header"><div className="card-title">Budget Distribution</div></div>
+                <div className="card-header"><div className="card-title">Phân bổ Ngân sách</div></div>
                 <div className="chart-container">
                   {pieData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -199,7 +199,7 @@ export default function BudgetAllocatorPage() {
                       </PieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="empty-state"><div className="empty-state-text">No data</div></div>
+                    <div className="empty-state"><div className="empty-state-text">Chưa có dữ liệu</div></div>
                   )}
                 </div>
               </div>
@@ -207,17 +207,17 @@ export default function BudgetAllocatorPage() {
 
             {/* Allocation Table */}
             <div className="card">
-              <div className="card-header"><div className="card-title">Allocation Details</div></div>
+              <div className="card-header"><div className="card-title">Chi tiết phân bổ</div></div>
               <div className="data-table-container">
                 <table className="data-table" id="allocation-table">
                   <thead>
                     <tr>
-                      <th>Campaign</th>
-                      <th>Status</th>
-                      <th>Current</th>
-                      <th>Recommended</th>
-                      <th>Change</th>
-                      <th>Score</th>
+                      <th>Chiến dịch</th>
+                      <th>Trạng thái</th>
+                      <th>Hiện tại</th>
+                      <th>Đề xuất</th>
+                      <th>Thay đổi</th>
+                      <th>Điểm</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -243,10 +243,10 @@ export default function BudgetAllocatorPage() {
         {!result && !loading && (
           <div className="card">
             <div className="empty-state" style={{ padding: 'var(--space-2xl)' }}>
-              <div className="empty-state-icon">✨</div>
-              <div className="empty-state-title">Set Your Budget</div>
+              <div className="empty-state-icon"></div>
+              <div className="empty-state-title">Thiết lập ngân sách</div>
               <div className="empty-state-text">
-                Enter your total daily budget above and click &quot;Calculate Allocation&quot; to see the AI-optimized distribution across your campaigns.
+                Nhập tổng ngân sách hàng ngày ở trên và bấm "Tính toán phân bổ" để xem đề xuất phân bổ tối ưu bằng AI cho các chiến dịch.
               </div>
             </div>
           </div>

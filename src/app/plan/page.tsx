@@ -43,16 +43,16 @@ interface PlanResponse {
 }
 
 const ACTION_CONFIG: Record<string, { icon: string; color: string; bg: string }> = {
-  KILL: { icon: '🔴', color: 'var(--color-kill)', bg: 'var(--color-kill-bg)' },
-  REVERT: { icon: '⏪', color: 'var(--color-watch)', bg: 'var(--color-watch-bg)' },
-  SCALE: { icon: '🟢', color: 'var(--color-winner)', bg: 'var(--color-winner-bg)' },
-  LAUNCH: { icon: '🚀', color: 'var(--accent-primary)', bg: 'var(--accent-glow)' },
-  WATCH: { icon: '🟠', color: 'var(--color-watch)', bg: 'var(--color-watch-bg)' },
+  KILL: { icon: '', color: 'var(--color-kill)', bg: 'var(--color-kill-bg)' },
+  REVERT: { icon: '', color: 'var(--color-watch)', bg: 'var(--color-watch-bg)' },
+  SCALE: { icon: '', color: 'var(--color-winner)', bg: 'var(--color-winner-bg)' },
+  LAUNCH: { icon: '', color: 'var(--accent-primary)', bg: 'var(--accent-glow)' },
+  WATCH: { icon: '', color: 'var(--color-watch)', bg: 'var(--color-watch-bg)' },
 };
 
 function ConfidenceBadge({ confidence }: { confidence: number }) {
   const level = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
-  const label = confidence >= 80 ? 'High' : confidence >= 50 ? 'Medium' : 'Low';
+  const label = confidence >= 80 ? 'Cao' : confidence >= 50 ? 'TB' : 'Thấp';
   return (
     <span className={`confidence-badge ${level}`}>
       {confidence}% {label}
@@ -63,7 +63,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 export default function ActionPlanPage() {
   const [days, setDays] = useState(3);
 
-  const today = new Date().toLocaleDateString('en-US', {
+  const today = new Date().toLocaleDateString('vi-VN', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
@@ -80,7 +80,7 @@ export default function ActionPlanPage() {
 
   return (
     <>
-      <Header title="Action Plan" subtitle={`${today} — AI-powered recommendations`}>
+      <Header title="Kế hoạch Hành động" subtitle={`${today} — Đề xuất tự động từ AI`}>
         <TimeframeSelector value={days} onChange={setDays} />
       </Header>
       <PageContainer>
@@ -88,7 +88,7 @@ export default function ActionPlanPage() {
         {plan?.aiSummary && (
           <div className="ai-summary-card" id="ai-summary">
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
-              <span className="ai-badge ai-label">🧠 AI Analysis</span>
+              <span className="ai-badge ai-label">Phân tích AI</span>
               {plan.aiUsed && (
                 <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
                   {plan.aiTokens} tokens
@@ -104,24 +104,20 @@ export default function ActionPlanPage() {
         {/* Summary Cards */}
         <div className="kpi-grid mb-lg">
           <div className="card kpi-card" id="plan-scale-count">
-            <div className="kpi-icon" style={{ background: 'var(--color-winner-bg)', color: 'var(--color-winner)' }}>📈</div>
-            <div className="card-title">Scale Actions</div>
+            <div className="card-title">Hành động Scale</div>
             <div className="card-value" style={{ color: 'var(--color-winner)' }}>{plan?.scaleCount ?? '—'}</div>
           </div>
           <div className="card kpi-card" id="plan-kill-count">
-            <div className="kpi-icon" style={{ background: 'var(--color-kill-bg)', color: 'var(--color-kill)' }}>🛑</div>
-            <div className="card-title">Kill Actions</div>
+            <div className="card-title">Hành động Kill</div>
             <div className="card-value" style={{ color: 'var(--color-kill)' }}>{plan?.killCount ?? '—'}</div>
           </div>
           <div className="card kpi-card" id="plan-budget-saved">
-            <div className="kpi-icon" style={{ background: 'var(--accent-glow)', color: 'var(--accent-primary)' }}>💰</div>
-            <div className="card-title">Budget Saved</div>
+            <div className="card-title">Ngân sách tiết kiệm</div>
             <div className="card-value">{plan ? formatCurrency(plan.budgetSaved) : '—'}</div>
-            <div className="card-subtitle">from kills</div>
+            <div className="card-subtitle">từ các chiến dịch Kill</div>
           </div>
           <div className="card kpi-card" id="plan-projected-margin">
-            <div className="kpi-icon" style={{ background: 'var(--color-promising-bg)', color: 'var(--color-promising)' }}>📊</div>
-            <div className="card-title">Current Margin</div>
+            <div className="card-title">Biên lợi nhuận hiện tại</div>
             <div className="card-value">{plan ? formatPercent(plan.projectedMargin) : '—'}</div>
           </div>
         </div>
@@ -129,7 +125,7 @@ export default function ActionPlanPage() {
         {/* Regenerate Button */}
         <div className="flex-between mb-md">
           <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>
-            {plan?.summary || 'No plan generated yet'}
+            {plan?.summary || 'Chưa có kế hoạch nào được tạo'}
           </div>
           <button
             className={`btn btn-primary btn-sm ${regenerating ? 'syncing' : ''}`}
@@ -137,20 +133,19 @@ export default function ActionPlanPage() {
             disabled={regenerating}
             id="btn-regenerate-plan"
           >
-            {regenerating ? '⟳ Analyzing...' : '🧠 Analyze with AI'}
+            {regenerating ? 'Đang phân tích...' : 'Phân tích với AI'}
           </button>
         </div>
 
         {/* Action List */}
         {loading ? (
-          <div className="loading-page"><div className="loading-spinner lg" /><span>Loading plan...</span></div>
+          <div className="loading-page"><div className="loading-spinner lg" /><span>Đang tải kế hoạch...</span></div>
         ) : actions.length === 0 ? (
           <div className="card">
             <div className="empty-state" style={{ padding: 'var(--space-2xl)' }}>
-              <div className="empty-state-icon">✅</div>
-              <div className="empty-state-title">No Actions Generated</div>
+              <div className="empty-state-title">Chưa Có Hành Động Nào</div>
               <div className="empty-state-text">
-                {data?.message || 'Sync campaign data first, then generate an action plan.'}
+                {data?.message || 'Đồng bộ dữ liệu trước tiên, sau đó bấm Phân tích với AI.'}
               </div>
             </div>
           </div>
@@ -172,12 +167,9 @@ export default function ActionPlanPage() {
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-md)' }}>
                     {/* Action icon */}
                     <div style={{
-                      width: 40, height: 40, borderRadius: 10,
-                      background: cfg.bg, color: cfg.color,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 20, flexShrink: 0,
+                      width: 8, height: 40, borderRadius: 4,
+                      background: cfg.color, flexShrink: 0,
                     }}>
-                      {cfg.icon}
                     </div>
 
                     {/* Content */}
@@ -208,21 +200,21 @@ export default function ActionPlanPage() {
                       {/* AI Reasoning */}
                       {action.aiReasoning && (
                         <div className="ai-reasoning">
-                          💡 {action.aiReasoning}
+                          {action.aiReasoning}
                         </div>
                       )}
 
                       {/* AI Prediction */}
                       {action.aiPrediction && (
                         <div className="ai-prediction">
-                          🔮 <strong>Prediction:</strong> {action.aiPrediction}
+                          <strong>Dự đoán:</strong> {action.aiPrediction}
                         </div>
                       )}
 
                       {/* Fallback: non-AI reason */}
                       {!action.aiReasoning && action.reason && (
                         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 'var(--space-xs)' }}>
-                          💡 {action.reason}
+                          {action.reason}
                         </div>
                       )}
 
@@ -236,7 +228,7 @@ export default function ActionPlanPage() {
                     {/* Budget change */}
                     {action.oldBudget !== null && action.newBudget !== null && (
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Budget</div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Ngân sách</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>
                           <span style={{ color: 'var(--text-secondary)', textDecoration: action.type === 'KILL' ? 'line-through' : 'none' }}>
                             ${action.oldBudget}
