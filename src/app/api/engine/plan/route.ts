@@ -71,12 +71,15 @@ async function generateAndReturnPlan(date: string, days: number) {
     new Date(date).getTime() - (days - 1) * 86400000
   ).toISOString().split('T')[0];
 
-  // 1. Get snapshots in range
+  // 1. Get snapshots in range — ONLY campaigns with actual spend
   const { data: rawSnapshots } = await supabaseAdmin
     .from('campaign_snapshots')
     .select('*')
     .gte('snapshot_date', fromDate)
-    .lte('snapshot_date', date);
+    .lte('snapshot_date', date)
+    .gt('spend', 0)
+    .order('spend', { ascending: false })
+    .limit(10000);
 
   if (!rawSnapshots || rawSnapshots.length === 0) {
     return NextResponse.json({
@@ -84,7 +87,7 @@ async function generateAndReturnPlan(date: string, days: number) {
       date,
       days,
       plan: null,
-      message: 'No campaign data for this period. Sync data first.',
+      message: 'Chưa có chiến dịch nào chi tiêu hôm nay. Hãy đồng bộ dữ liệu trước.',
     });
   }
 

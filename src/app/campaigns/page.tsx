@@ -49,7 +49,7 @@ const STATUS_FILTERS: Array<{ value: CampaignStatus | 'ALL'; label: string; icon
 type SortKey = 'spend' | 'conversions' | 'cpa' | 'ctr' | 'performance_score';
 
 export default function CampaignsPage() {
-  const [days, setDays] = useState(3);
+  const [days, setDays] = useState(1);
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | 'ALL'>('ALL');
   const [sortKey, setSortKey] = useState<SortKey>('spend');
   const [sortAsc, setSortAsc] = useState(false);
@@ -149,14 +149,20 @@ export default function CampaignsPage() {
               <tbody>
                 {sorted.map((c) => {
                   const isPaused = c.fb_status === 'PAUSED' || c.effective_status === 'PAUSED';
+                  const isActive = !isPaused;
                   return (
-                    <tr key={c.campaign_id} className={isPaused ? 'row-paused' : ''}>
+                    <tr key={c.campaign_id} className={isPaused ? 'row-paused' : ''} style={{ opacity: isPaused ? 0.6 : 1 }}>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-xs)' }}>
+                          <span style={{
+                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                            background: isActive ? '#22c55e' : '#6b7280',
+                            boxShadow: isActive ? '0 0 6px rgba(34,197,94,0.4)' : 'none',
+                          }} title={isActive ? 'Active' : 'Off'} />
                           <Link href={`/campaigns/${c.campaign_id}`} style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
                             {c.campaign_name}
                           </Link>
-                          {isPaused && <span className="paused-badge">Tạm dừng</span>}
+                          {isPaused && <span className="paused-badge" style={{ background: 'rgba(107,114,128,0.2)', color: '#9ca3af', fontSize: '10px', padding: '1px 6px', borderRadius: '4px', marginLeft: '4px' }}>Off</span>}
                         </div>
                       </td>
                       <td><StatusBadge status={c.status || 'LEARNING'} /></td>

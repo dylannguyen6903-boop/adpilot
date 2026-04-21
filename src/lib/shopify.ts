@@ -6,6 +6,8 @@
  * - Customer data (for LTV tracking)
  */
 
+import { convertToAdAccountDate } from '@/lib/timezone';
+
 interface ShopifyConfig {
   storeDomain: string;
   accessToken: string;
@@ -287,7 +289,7 @@ export function aggregateOrdersByDay(orders: ParsedOrder[]): DailyRevenueSummary
   const dailyMap = new Map<string, { revenue: number; count: number; returning: number }>();
 
   for (const order of orders) {
-    const date = order.createdAt.split('T')[0]; // YYYY-MM-DD
+    const date = convertToAdAccountDate(order.createdAt); // Align with FB timezone (GMT-7)
     const existing = dailyMap.get(date) || { revenue: 0, count: 0, returning: 0 };
 
     // Use totalPrice (Gross Sales) to match Shopify dashboard exactly

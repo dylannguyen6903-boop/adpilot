@@ -52,3 +52,17 @@ export function getAdAccountHour(): number {
 export function getAdAccountOffset(): number {
   return AD_ACCOUNT_UTC_OFFSET;
 }
+
+/**
+ * Convert a UTC ISO timestamp to a date string (YYYY-MM-DD) in the ad account timezone.
+ * Use this to assign Shopify orders to the correct day aligned with Facebook data.
+ * 
+ * Example: "2026-04-21T02:00:00Z" in GMT-7 = "2026-04-20" (still previous day)
+ */
+export function convertToAdAccountDate(utcTimestamp: string): string {
+  const d = new Date(utcTimestamp);
+  // Shift to ad account timezone
+  const adAccountMs = d.getTime() + AD_ACCOUNT_UTC_OFFSET * 3600000;
+  const adDate = new Date(adAccountMs);
+  return adDate.toISOString().split('T')[0];
+}

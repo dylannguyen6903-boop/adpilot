@@ -69,7 +69,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const [days, setDays] = useState(3);
+  const [days, setDays] = useState(1);
   const today = new Date().toISOString().split('T')[0];
   const fromDate = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
 

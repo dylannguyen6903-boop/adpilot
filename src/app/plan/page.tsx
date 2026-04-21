@@ -61,13 +61,13 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 }
 
 export default function ActionPlanPage() {
-  const [days, setDays] = useState(3);
+  const days = 1; // Always analyze today only
 
   const today = new Date().toLocaleDateString('vi-VN', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  const { data, loading, refetch } = useApiData<PlanResponse>(`/api/engine/plan?days=${days}`);
+  const { data, loading, refetch } = useApiData<PlanResponse>(`/api/engine/plan?days=${days}&force=true`);
   const { execute: regenerate, loading: regenerating } = useApiAction<PlanResponse>('/api/engine/plan');
 
   const plan = data?.plan;
@@ -80,8 +80,7 @@ export default function ActionPlanPage() {
 
   return (
     <>
-      <Header title="Kế hoạch Hành động" subtitle={`${today} — Đề xuất tự động từ AI`}>
-        <TimeframeSelector value={days} onChange={setDays} />
+      <Header title="Kế hoạch Hành động" subtitle={`${today} — Phân tích chiến dịch hôm nay`}>
       </Header>
       <PageContainer>
         {/* AI Summary */}
