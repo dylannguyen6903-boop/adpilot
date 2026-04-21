@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     await supabaseAdmin.from('sync_logs').insert({
       sync_type: 'SHOPIFY',
       status: 'SUCCESS',
-      orders_synced: orders.length,
+      campaigns_synced: orders.length,
       duration_ms: durationMs,
     });
 

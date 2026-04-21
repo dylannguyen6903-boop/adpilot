@@ -290,8 +290,8 @@ export function aggregateOrdersByDay(orders: ParsedOrder[]): DailyRevenueSummary
     const date = order.createdAt.split('T')[0]; // YYYY-MM-DD
     const existing = dailyMap.get(date) || { revenue: 0, count: 0, returning: 0 };
 
-    // Use subtotalPrice (excludes tax + shipping) to match Shopify's "Total sales"
-    existing.revenue += order.subtotalPrice;
+    // Use totalPrice (Gross Sales) to match Shopify dashboard exactly
+    existing.revenue += order.totalPrice;
     existing.count += 1;
     if (order.isReturningCustomer) {
       existing.returning += 1;
@@ -321,8 +321,8 @@ export function buildCustomerSummaries(orders: ParsedOrder[]): CustomerSummary[]
     const existing = customerMap.get(order.customerEmail);
     if (existing) {
       existing.totalOrders += 1;
-      // Use subtotalPrice (excludes tax + shipping) for accurate LTV
-      existing.totalRevenue += order.subtotalPrice;
+      // Use totalPrice (Gross Sales) to match Shopify dashboard exactly
+      existing.totalRevenue += order.totalPrice;
       if (order.createdAt < existing.firstOrderDate) {
         existing.firstOrderDate = order.createdAt;
       }
@@ -331,7 +331,7 @@ export function buildCustomerSummaries(orders: ParsedOrder[]): CustomerSummary[]
       customerMap.set(order.customerEmail, {
         email: order.customerEmail,
         totalOrders: 1,
-        totalRevenue: order.subtotalPrice,
+        totalRevenue: order.totalPrice,
         firstOrderDate: order.createdAt,
         isReturning: order.isReturningCustomer,
       });
