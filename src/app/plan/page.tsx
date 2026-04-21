@@ -68,7 +68,7 @@ export default function ActionPlanPage() {
   });
 
   const { data, loading, refetch } = useApiData<PlanResponse>(`/api/engine/plan?days=${days}&force=true`);
-  const { execute: regenerate, loading: regenerating } = useApiAction<PlanResponse>('/api/engine/plan');
+  const { execute: regenerate, loading: regenerating } = useApiAction<PlanResponse>(`/api/engine/plan?days=${days}`);
 
   const plan = data?.plan;
   const actions = plan?.actions || [];

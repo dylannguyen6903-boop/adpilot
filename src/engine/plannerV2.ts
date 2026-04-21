@@ -96,19 +96,7 @@ function applyRules(
       continue;
     }
 
-    // Rule 1: LEARNING — too new to judge
-    if (camp.daysRunning < 3 || camp.daysWithData < 2) {
-      ruleActions.push({
-        campaignId: camp.campaignId,
-        campaignName: camp.campaignName,
-        action: 'SKIP',
-        reason: `Campaign is ${camp.daysRunning} day(s) old with ${camp.daysWithData} day(s) of data — still in learning phase.`,
-        budget: camp.dailyBudget,
-      });
-      continue;
-    }
-
-    // Rule 2: Auto-KILL — significant spend, zero conversions
+    // Rule 1: Auto-KILL — significant spend, zero conversions
     if (camp.conversions === 0 && camp.spend >= killThreshold) {
       ruleActions.push({
         campaignId: camp.campaignId,
