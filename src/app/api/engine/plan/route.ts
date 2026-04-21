@@ -4,6 +4,9 @@ import { generateActionPlanV2, type CampaignData, type PlannerConfig } from '@/e
 import { calculateDailyMargin } from '@/engine/margin';
 import { getAdAccountToday } from '@/lib/timezone';
 
+export const maxDuration = 300; // 5 minutes for Vercel Pro
+
+
 /**
  * GET /api/engine/plan
  * Returns today's action plan. If none exists, generates one.

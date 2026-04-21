@@ -9,6 +9,9 @@ import {
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
 
+export const maxDuration = 300; // 5 minutes for Vercel Pro
+
+
 /**
  * POST /api/shopify/sync
  * Triggers a manual sync of Shopify order data.

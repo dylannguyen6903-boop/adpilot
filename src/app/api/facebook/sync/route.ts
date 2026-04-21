@@ -11,6 +11,8 @@ import {
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
 
+export const maxDuration = 300; // 5 minutes for Vercel Pro
+
 /**
  * POST /api/facebook/sync
  * Triggers a manual sync of Facebook campaign data.
@@ -128,8 +130,8 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Upsert snapshots into DB ──
-    const campaignMap = new Map(allCampaigns.map((c) => [c.id, c]));
     let syncedCount = 0;
+    const snapshotsToUpsert: any[] = [];
 
     for (const campaign of allCampaigns) {
       const insightsForCampaign = allInsights.filter(i => i.campaign_id === campaign.id);
@@ -137,7 +139,7 @@ export async function POST(request: NextRequest) {
 
       if (insightsForCampaign.length === 0) {
         // No insights — save a zero-spend snapshot for today
-        const { error } = await supabaseAdmin.from('campaign_snapshots').upsert({
+        snapshotsToUpsert.push({
           campaign_id: campaign.id,
           campaign_name: campaign.name,
           snapshot_date: today,
@@ -148,10 +150,7 @@ export async function POST(request: NextRequest) {
           fb_status: campaign.status || 'ACTIVE',
           effective_status: campaign.status || 'ACTIVE',
           campaign_created_time: campaign.created_time || null,
-        }, { onConflict: 'campaign_id,snapshot_date,snapshot_hour' });
-
-        if (error) console.error(`Error zero-snapshot for ${campaign.name}:`, error);
-        else syncedCount++;
+        });
         continue;
       }
 
@@ -161,42 +160,43 @@ export async function POST(request: NextRequest) {
         const revenueFb = extractPurchaseRevenue(insight.action_values);
         const roas = calculateFBRoas(insight);
 
-        const snapshotDate = insight.date_start;
-        const hour = 0; // 1 snapshot per day per campaign
+        snapshotsToUpsert.push({
+          campaign_id: campaign.id,
+          campaign_name: campaign.name,
+          snapshot_date: insight.date_start,
+          snapshot_hour: 0,
+          daily_budget: dailyBudget,
+          spend: parseFloat(insight.spend),
+          impressions: parseInt(insight.impressions, 10),
+          clicks: parseInt(insight.clicks, 10),
+          conversions,
+          revenue_fb: revenueFb,
+          cpa,
+          ctr: parseFloat(insight.ctr),
+          cpm: parseFloat(insight.cpm),
+          cpc: insight.cpc ? parseFloat(insight.cpc) : 0,
+          roas_fb: roas,
+          reach: parseInt(insight.reach, 10),
+          frequency: insight.frequency ? parseFloat(insight.frequency) : 0,
+          fb_status: campaign.status || 'ACTIVE',
+          effective_status: campaign.status || 'ACTIVE',
+          campaign_created_time: campaign.created_time || null,
+        });
+      }
+    }
 
-        const { error } = await supabaseAdmin
-          .from('campaign_snapshots')
-          .upsert(
-            {
-              campaign_id: campaign.id,
-              campaign_name: campaign.name,
-              snapshot_date: snapshotDate,
-              snapshot_hour: hour,
-              daily_budget: dailyBudget,
-              spend: parseFloat(insight.spend),
-              impressions: parseInt(insight.impressions, 10),
-              clicks: parseInt(insight.clicks, 10),
-              conversions,
-              revenue_fb: revenueFb,
-              cpa,
-              ctr: parseFloat(insight.ctr),
-              cpm: parseFloat(insight.cpm),
-              cpc: insight.cpc ? parseFloat(insight.cpc) : 0,
-              roas_fb: roas,
-              reach: parseInt(insight.reach, 10),
-              frequency: insight.frequency ? parseFloat(insight.frequency) : 0,
-              fb_status: campaign.status || 'ACTIVE',
-              effective_status: campaign.status || 'ACTIVE',
-              campaign_created_time: campaign.created_time || null,
-            },
-            { onConflict: 'campaign_id,snapshot_date,snapshot_hour' }
-          );
-
-        if (error) {
-          console.error(`Error upserting snapshot for ${campaign.name}:`, error);
-        } else {
-          syncedCount++;
-        }
+    // Process chunk upserts
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < snapshotsToUpsert.length; i += CHUNK_SIZE) {
+      const chunk = snapshotsToUpsert.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabaseAdmin
+        .from('campaign_snapshots')
+        .upsert(chunk, { onConflict: 'campaign_id,snapshot_date,snapshot_hour' });
+      
+      if (error) {
+        console.error(`Error batch upserting snapshots ${i} to ${i + CHUNK_SIZE}:`, error);
+      } else {
+        syncedCount += chunk.length;
       }
     }
 
