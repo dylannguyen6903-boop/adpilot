@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { validateFacebookToken } from '@/lib/facebook';
 import { validateShopifyConnection } from '@/lib/shopify';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/settings/connections
  * Returns connection status for Facebook and Shopify.
