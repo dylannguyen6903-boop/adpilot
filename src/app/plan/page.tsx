@@ -5,6 +5,7 @@ import { Header, PageContainer } from '@/components/layout';
 import { useApiData } from '@/hooks/useApi';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import type { GoalBreakdown, GoalRecommendation, CpaSensitivity } from '@/engine/goalEngine';
+import type { CampaignEvaluation } from '@/engine/evaluator';
 
 // ─────────────────────────────────────────
 // Types
@@ -24,6 +25,12 @@ interface ActionItem {
   aiReasoning: string | null;
   aiPrediction: string | null;
   aiConfidence: number | null;
+  // V3
+  lifecycle?: string;
+  campType?: string;
+  funnelHealth?: number;
+  profitPerOrder?: number | null;
+  diagnosis?: string;
 }
 
 interface PlanResponse {
@@ -35,11 +42,15 @@ interface PlanResponse {
     scaleCount: number;
     killCount: number;
     watchCount: number;
+    refreshCount?: number;
+    learningCount?: number;
     projectedMargin: number | null;
     budgetSaved: number;
     summary: string;
     aiUsed: boolean;
     aiTokens: number;
+    evaluations?: CampaignEvaluation[];
+    accountHealth?: string | null;
   } | null;
   goal: GoalBreakdown | null;
   cached: boolean;
@@ -147,6 +158,43 @@ function DailyKPIs({ goal }: { goal: GoalBreakdown }) {
   );
 }
 
+const LIFECYCLE_COLORS: Record<string, { bg: string; color: string }> = {
+  LEARNING: { bg: '#374151', color: '#9ca3af' },
+  EVALUATING: { bg: '#1e3a5f', color: '#60a5fa' },
+  PERFORMING: { bg: '#14532d', color: '#4ade80' },
+  SCALING: { bg: '#3b0764', color: '#c084fc' },
+  FATIGUED: { bg: '#7f1d1d', color: '#f87171' },
+};
+
+const CAMPTYPE_LABELS: Record<string, { icon: string; label: string }> = {
+  PROSPECTING: { icon: '🔵', label: 'TOF' },
+  RETARGETING: { icon: '🟠', label: 'BOF' },
+  MIXED: { icon: '⚪', label: 'Mix' },
+};
+
+function LifecycleBadge({ phase }: { phase?: string }) {
+  if (!phase) return null;
+  const cfg = LIFECYCLE_COLORS[phase] || LIFECYCLE_COLORS.EVALUATING;
+  return (
+    <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: cfg.bg, color: cfg.color, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
+      {phase}
+    </span>
+  );
+}
+
+function FunnelHealthBar({ score }: { score?: number }) {
+  if (score === undefined || score === null) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  const color = score >= 70 ? '#4ade80' : score >= 40 ? '#facc15' : '#f87171';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
+        <div style={{ width: `${score}%`, height: '100%', background: color, borderRadius: 3 }} />
+      </div>
+      <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color }}>{score}</span>
+    </div>
+  );
+}
+
 function ActionTable({ title, actions, type, color }: {
   title: string;
   actions: ActionItem[];
@@ -173,18 +221,21 @@ function ActionTable({ title, actions, type, color }: {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: 60 }}>Loại</th>
+                <th style={{ width: 55 }}>Loại</th>
                 <th>Campaign</th>
-                <th style={{ width: 80 }}>CPA</th>
-                {type === 'action' && <th style={{ width: 140 }}>Budget</th>}
-                {type === 'action' && <th style={{ width: 60 }}>AI %</th>}
-                {type === 'watch' && <th style={{ width: 80 }}>Budget</th>}
+                <th style={{ width: 65 }}>Phase</th>
+                <th style={{ width: 50 }}>Health</th>
+                <th style={{ width: 70 }}>Profit/Đơn</th>
+                <th style={{ width: 65 }}>CPA</th>
+                {type === 'action' && <th style={{ width: 130 }}>Budget</th>}
+                {type === 'watch' && <th style={{ width: 70 }}>Budget</th>}
               </tr>
             </thead>
             <tbody>
               {actions.map((a) => {
                 const cfg = ACTION_STYLES[a.type] || ACTION_STYLES.WATCH;
                 const isExpanded = expandedRow === a.id;
+                const ct = CAMPTYPE_LABELS[a.campType || ''] || CAMPTYPE_LABELS.MIXED;
                 return (
                   <>
                     <tr
@@ -193,14 +244,24 @@ function ActionTable({ title, actions, type, color }: {
                       style={{ cursor: 'pointer', opacity: a.isCompleted ? 0.5 : 1 }}
                     >
                       <td>
-                        <span style={{ color: cfg.color, fontWeight: 700, fontSize: 'var(--text-xs)', textTransform: 'uppercase' as const }}>
+                        <span style={{ color: cfg.color, fontWeight: 700, fontSize: 10, textTransform: 'uppercase' as const }}>
                           {a.type}
                         </span>
                       </td>
-                      <td style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>{a.campaignName}</td>
-                      <td className="cell-mono">{a.currentCpa ? formatCurrency(a.currentCpa) : '—'}</td>
+                      <td style={{ fontSize: 'var(--text-sm)' }}>
+                        <div style={{ fontWeight: 500 }}>{a.campaignName}</div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                          <span style={{ fontSize: 9 }}>{ct.icon} {ct.label}</span>
+                        </div>
+                      </td>
+                      <td><LifecycleBadge phase={a.lifecycle} /></td>
+                      <td><FunnelHealthBar score={a.funnelHealth} /></td>
+                      <td className="cell-mono" style={{ fontSize: 11, color: (a.profitPerOrder ?? 0) > 0 ? '#4ade80' : (a.profitPerOrder ?? 0) < 0 ? '#f87171' : 'var(--text-muted)' }}>
+                        {a.profitPerOrder != null ? `$${a.profitPerOrder.toFixed(0)}` : '—'}
+                      </td>
+                      <td className="cell-mono" style={{ fontSize: 11 }}>{a.currentCpa ? `$${a.currentCpa.toFixed(0)}` : '—'}</td>
                       {type === 'action' && (
-                        <td className="cell-mono" style={{ fontSize: 'var(--text-xs)' }}>
+                        <td className="cell-mono" style={{ fontSize: 11 }}>
                           {a.oldBudget !== null && a.newBudget !== null ? (
                             <>
                               <span style={{ textDecoration: a.type === 'KILL' ? 'line-through' : 'none', color: 'var(--text-muted)' }}>${a.oldBudget}</span>
@@ -210,25 +271,17 @@ function ActionTable({ title, actions, type, color }: {
                           ) : '—'}
                         </td>
                       )}
-                      {type === 'action' && (
-                        <td>
-                          {a.aiConfidence !== null && (
-                            <span className={`confidence-badge ${a.aiConfidence >= 80 ? 'high' : a.aiConfidence >= 50 ? 'medium' : 'low'}`}>
-                              {a.aiConfidence}%
-                            </span>
-                          )}
-                        </td>
-                      )}
                       {type === 'watch' && (
-                        <td className="cell-mono">{a.oldBudget !== null ? `$${a.oldBudget}` : '—'}</td>
+                        <td className="cell-mono" style={{ fontSize: 11 }}>{a.oldBudget !== null ? `$${a.oldBudget}` : '—'}</td>
                       )}
                     </tr>
-                    {isExpanded && (a.aiReasoning || a.reason) && (
+                    {isExpanded && (
                       <tr key={`${a.id}-detail`}>
-                        <td colSpan={type === 'action' ? 5 : 4} style={{ background: 'var(--bg-tertiary)', padding: 'var(--space-sm) var(--space-md)' }}>
-                          {a.aiReasoning && <div className="ai-reasoning" style={{ marginBottom: 'var(--space-xs)' }}>{a.aiReasoning}</div>}
-                          {a.aiPrediction && <div className="ai-prediction"><strong>Dự đoán:</strong> {a.aiPrediction}</div>}
-                          {!a.aiReasoning && a.reason && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{a.reason}</div>}
+                        <td colSpan={type === 'action' ? 8 : 7} style={{ background: 'var(--bg-tertiary)', padding: 'var(--space-sm) var(--space-md)' }}>
+                          {a.diagnosis && <div style={{ fontSize: 11, color: 'var(--accent-primary)', marginBottom: 4 }}>📊 {a.diagnosis}</div>}
+                          {a.aiReasoning && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{a.aiReasoning}</div>}
+                          {a.aiPrediction && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>💡 {a.aiPrediction}</div>}
+                          {!a.aiReasoning && a.reason && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{a.reason}</div>}
                         </td>
                       </tr>
                     )}
@@ -374,7 +427,7 @@ const ACTION_STYLES: Record<string, { color: string }> = {
 // ─────────────────────────────────────────
 
 export default function ActionPlanPage() {
-  const days = 1;
+  const days = 7;
   const today = new Date().toLocaleDateString('vi-VN', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
@@ -420,12 +473,13 @@ export default function ActionPlanPage() {
             {/* Section 1: Goal Progress */}
             {goal && <GoalProgressBar goal={goal} />}
 
-            {/* AI Summary */}
+            {/* Account Health + AI Summary */}
             {plan?.aiSummary && (
               <div className="ai-summary-card mb-md" id="ai-summary">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)' }}>
-                  <span className="ai-badge ai-label">Phân tích AI</span>
+                  <span className="ai-badge ai-label">🧠 Account Health</span>
                   {plan.aiUsed && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{plan.aiTokens} tokens</span>}
+                  {plan.learningCount !== undefined && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>⚫ {plan.learningCount} learning</span>}
                 </div>
                 <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: 'var(--leading-relaxed)', margin: 0 }}>{plan.aiSummary}</p>
               </div>

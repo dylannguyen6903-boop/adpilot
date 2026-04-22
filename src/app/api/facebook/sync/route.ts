@@ -5,11 +5,16 @@ import {
   extractPurchaseCount,
   extractPurchaseCPA,
   extractPurchaseRevenue,
+  extractAddToCart,
+  extractInitiateCheckout,
+  extractLandingPageViews,
   parseFBBudget,
   calculateFBRoas,
 } from '@/lib/facebook';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
+
+// Sync 30 days of data for multi-window evaluation (today/3D/7D/14D/30D)
 
 export const maxDuration = 300; // 5 minutes for Vercel Pro
 
@@ -55,6 +60,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if body overrides (for explicit single-account manual sync/test)
+    let syncDays = 7; // Default: 7 days (proven safe, sufficient for evaluation)
     try {
       const body = await request.json();
       if (body.accessToken && body.adAccountId) {
@@ -63,6 +69,12 @@ export async function POST(request: NextRequest) {
           adAccountId: body.adAccountId,
           apiVersion: 'v21.0',
         }];
+      }
+      // Support backfill mode for initial 30-day data load
+      if (body.backfill === true) {
+        syncDays = 30;
+      } else if (body.days && typeof body.days === 'number' && body.days > 0 && body.days <= 30) {
+        syncDays = body.days;
       }
     } catch {
       // Ignored — POST without body is fine
@@ -76,8 +88,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Use ad-account timezone for date range ──
+    // Regular sync: 3 days (today + lag correction). DB accumulates over time.
+    // Backfill: 30 days (manual trigger for initial data load)
     const today = getAdAccountToday();
-    const sevenDaysAgo = getAdAccountDateMinusDays(7);
+    const fromDate = getAdAccountDateMinusDays(syncDays);
 
     // ── Fetch campaigns + insights per account, track errors ──
     const allCampaigns: any[] = [];
@@ -90,7 +104,7 @@ export async function POST(request: NextRequest) {
         const campaigns = await fetchCampaigns(config);
         allCampaigns.push(...campaigns);
 
-        const insights = await fetchCampaignInsights(sevenDaysAgo, today, config);
+        const insights = await fetchCampaignInsights(fromDate, today, config);
         allInsights.push(...insights);
         accountsSucceeded++;
       } catch (err) {
@@ -159,6 +173,9 @@ export async function POST(request: NextRequest) {
         const cpa = extractPurchaseCPA(insight.cost_per_action_type);
         const revenueFb = extractPurchaseRevenue(insight.action_values);
         const roas = calculateFBRoas(insight);
+        const addToCart = extractAddToCart(insight.actions);
+        const initiateCheckout = extractInitiateCheckout(insight.actions);
+        const landingPageViews = extractLandingPageViews(insight.actions);
 
         snapshotsToUpsert.push({
           campaign_id: campaign.id,
@@ -178,6 +195,9 @@ export async function POST(request: NextRequest) {
           roas_fb: roas,
           reach: parseInt(insight.reach, 10),
           frequency: insight.frequency ? parseFloat(insight.frequency) : 0,
+          add_to_cart: addToCart,
+          initiate_checkout: initiateCheckout,
+          landing_page_views: landingPageViews,
           fb_status: campaign.status || 'ACTIVE',
           effective_status: campaign.status || 'ACTIVE',
           campaign_created_time: campaign.created_time || null,
@@ -217,7 +237,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       adAccountTimezone: 'GMT-7',
-      dateRange: { from: sevenDaysAgo, to: today },
+      dateRange: { from: fromDate, to: today },
+      syncDays,
       campaignsSynced: syncedCount,
       totalCampaigns: allCampaigns.length,
       insightsProcessed: allInsights.length,

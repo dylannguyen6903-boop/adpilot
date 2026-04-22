@@ -23,6 +23,12 @@ export interface ActionItem {
   aiReasoning: string | null;
   aiPrediction: string | null;
   aiConfidence: number | null;  // 0-100
+  // V3 evaluation fields
+  lifecycle?: string;            // LEARNING, EVALUATING, PERFORMING, SCALING, FATIGUED
+  campType?: string;             // PROSPECTING, RETARGETING, MIXED
+  funnelHealth?: number;         // 0-100
+  profitPerOrder?: number | null;
+  diagnosis?: string;            // Metric combo pattern description
 }
 
 /** Full action plan for a day */

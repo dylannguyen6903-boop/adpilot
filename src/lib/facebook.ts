@@ -98,11 +98,17 @@ export interface FBResponse<T> {
 // API Methods
 // ─────────────────────────────────────────────
 
-/** Make a request to Facebook Graph API */
+/** Sleep helper for rate limit delays */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Make a request to Facebook Graph API with retry on rate limit */
 async function fbRequest<T>(
   endpoint: string,
   config: FacebookConfig,
-  params: Record<string, string> = {}
+  params: Record<string, string> = {},
+  retries = 3
 ): Promise<FBResponse<T>> {
   const url = new URL(`${FB_API_BASE}/${config.apiVersion}/${endpoint}`);
   url.searchParams.set('access_token', config.accessToken);
@@ -111,23 +117,64 @@ async function fbRequest<T>(
     url.searchParams.set(key, value);
   }
 
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    // Cache for 5 minutes to reduce API calls
-    next: { revalidate: 300 },
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      next: { revalidate: 300 },
+    });
 
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
-    throw new Error(
-      `Facebook API error (${response.status}): ${
-        errorBody?.error?.message || response.statusText
-      }`
-    );
+    if (response.status === 403 || response.status === 429) {
+      // Rate limited — wait and retry with exponential backoff
+      const waitMs = Math.min(1000 * Math.pow(2, attempt + 1), 30000); // 2s, 4s, 8s, max 30s
+      console.warn(`[FB API] Rate limited (attempt ${attempt + 1}/${retries + 1}), waiting ${waitMs}ms...`);
+      if (attempt < retries) {
+        await sleep(waitMs);
+        continue;
+      }
+    }
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(
+        `Facebook API error (${response.status}): ${
+          errorBody?.error?.message || response.statusText
+        }`
+      );
+    }
+
+    return response.json();
   }
 
-  return response.json();
+  throw new Error('Facebook API: Max retries exceeded');
+}
+
+/** Fetch paginated results with delay between pages to avoid rate limits */
+async function fetchPaginated<T>(nextUrl: string, results: T[]): Promise<void> {
+  let url: string | undefined = nextUrl;
+  while (url) {
+    await sleep(500); // 500ms delay between pagination requests
+    const pageRes = await fetch(url);
+
+    if (pageRes.status === 403 || pageRes.status === 429) {
+      // Rate limited during pagination — wait and retry once
+      console.warn('[FB API] Rate limited during pagination, waiting 5s...');
+      await sleep(5000);
+      const retryRes = await fetch(url);
+      if (!retryRes.ok) {
+        console.warn('[FB API] Pagination retry failed, returning partial results');
+        return; // Return partial results instead of throwing
+      }
+      const retryData: FBResponse<T> = await retryRes.json();
+      results.push(...retryData.data);
+      url = retryData.paging?.next;
+      continue;
+    }
+
+    const pageData: FBResponse<T> = await pageRes.json();
+    results.push(...pageData.data);
+    url = pageData.paging?.next;
+  }
 }
 
 /**
@@ -163,12 +210,9 @@ export async function fetchCampaigns(
   allCampaigns.push(...result.data);
   nextUrl = result.paging?.next;
 
-  // Paginate if needed
-  while (nextUrl) {
-    const pageRes = await fetch(nextUrl);
-    const pageData: FBResponse<FBCampaign> = await pageRes.json();
-    allCampaigns.push(...pageData.data);
-    nextUrl = pageData.paging?.next;
+  // Paginate if needed (with rate limit protection)
+  if (nextUrl) {
+    await fetchPaginated<FBCampaign>(nextUrl, allCampaigns);
   }
 
   return allCampaigns;
@@ -209,6 +253,12 @@ export async function fetchCampaignInsights(
 
   const timeRange = JSON.stringify({ since: dateFrom, until: dateTo });
 
+  // Only fetch insights for campaigns that had delivery (spend > 0)
+  // This dramatically reduces API load for accounts with many paused campaigns
+  const filtering = JSON.stringify([
+    { field: 'spend', operator: 'GREATER_THAN', value: '0' },
+  ]);
+
   const result = await fbRequest<FBInsight>(
     `act_${cfg.adAccountId.replace('act_', '')}/insights`,
     cfg,
@@ -217,6 +267,7 @@ export async function fetchCampaignInsights(
       time_range: timeRange,
       time_increment: '1',       // Daily breakdown
       level: 'campaign',
+      filtering,                 // Only campaigns with spend > 0
       limit: '500',
     }
   );
@@ -228,11 +279,9 @@ export async function fetchCampaignInsights(
   allInsights.push(...result.data);
   nextUrl = result.paging?.next;
 
-  while (nextUrl) {
-    const pageRes = await fetch(nextUrl);
-    const pageData: FBResponse<FBInsight> = await pageRes.json();
-    allInsights.push(...pageData.data);
-    nextUrl = pageData.paging?.next;
+  // Paginate with rate limit protection
+  if (nextUrl) {
+    await fetchPaginated<FBInsight>(nextUrl, allInsights);
   }
 
   return allInsights;
@@ -273,6 +322,37 @@ export function extractPurchaseRevenue(actionValues?: FBInsightAction[]): number
       a.action_type === 'offsite_conversion.fb_pixel_purchase'
   );
   return purchaseValue ? parseFloat(purchaseValue.value) : 0;
+}
+
+/** Extract Add to Cart count from FB actions array */
+export function extractAddToCart(actions?: FBInsightAction[]): number {
+  if (!actions) return 0;
+  const atc = actions.find(
+    (a) =>
+      a.action_type === 'add_to_cart' ||
+      a.action_type === 'omni_add_to_cart' ||
+      a.action_type === 'offsite_conversion.fb_pixel_add_to_cart'
+  );
+  return atc ? parseInt(atc.value, 10) : 0;
+}
+
+/** Extract Initiate Checkout count from FB actions array */
+export function extractInitiateCheckout(actions?: FBInsightAction[]): number {
+  if (!actions) return 0;
+  const ic = actions.find(
+    (a) =>
+      a.action_type === 'initiate_checkout' ||
+      a.action_type === 'omni_initiate_checkout' ||
+      a.action_type === 'offsite_conversion.fb_pixel_initiate_checkout'
+  );
+  return ic ? parseInt(ic.value, 10) : 0;
+}
+
+/** Extract Landing Page Views from FB actions array */
+export function extractLandingPageViews(actions?: FBInsightAction[]): number {
+  if (!actions) return 0;
+  const lpv = actions.find((a) => a.action_type === 'landing_page_view');
+  return lpv ? parseInt(lpv.value, 10) : 0;
 }
 
 /** Convert FB daily_budget (in cents) to dollar amount */

@@ -11,12 +11,12 @@ export const maxDuration = 300; // 5 minutes for Vercel Pro
 /**
  * GET /api/engine/plan
  * Returns today's action plan. If none exists, generates one.
- * Query params: ?days=3&force=true
+ * Query params: ?days=7&force=true
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const days = parseInt(searchParams.get('days') || '3', 10);
+    const days = parseInt(searchParams.get('days') || '7', 10);
     const date = searchParams.get('date') || getAdAccountToday();
     const force = searchParams.get('force') === 'true';
 
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const days = parseInt(searchParams.get('days') || '3', 10);
+    const days = parseInt(searchParams.get('days') || '7', 10);
     const today = getAdAccountToday();
     return await generateAndReturnPlan(today, days);
   } catch (error) {
@@ -67,19 +67,44 @@ export async function POST(request: Request) {
   }
 }
 
+// ─────────────────────────────────────────
+// Helper: Per-day snapshot for a campaign
+// ─────────────────────────────────────────
+
+interface DailySnapshot {
+  snapshot_date: string;
+  spend: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+  revenue_fb: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+  frequency: number;
+  add_to_cart: number;
+  initiate_checkout: number;
+}
+
+// ─────────────────────────────────────────
+// Main Plan Generation
+// ─────────────────────────────────────────
+
 async function generateAndReturnPlan(date: string, days: number) {
+  // Use 7-day window for evaluation, but fetch up to `days` for trends
+  const evalDays = Math.max(days, 7);
   const fromDate = new Date(
-    new Date(date).getTime() - (days - 1) * 86400000
+    new Date(date).getTime() - (evalDays - 1) * 86400000
   ).toISOString().split('T')[0];
 
-  // 1. Get snapshots in range — ONLY campaigns with actual spend
+  // 1. Get snapshots in range — ALL campaigns with any spend in period
   const { data: rawSnapshots } = await supabaseAdmin
     .from('campaign_snapshots')
     .select('*')
     .gte('snapshot_date', fromDate)
     .lte('snapshot_date', date)
     .gt('spend', 0)
-    .order('spend', { ascending: false })
+    .order('snapshot_date', { ascending: true })
     .limit(10000);
 
   if (!rawSnapshots || rawSnapshots.length === 0) {
@@ -88,59 +113,53 @@ async function generateAndReturnPlan(date: string, days: number) {
       date,
       days,
       plan: null,
-      message: 'Chưa có chiến dịch nào chi tiêu hôm nay. Hãy đồng bộ dữ liệu trước.',
+      message: 'Chưa có chiến dịch nào chi tiêu trong khoảng thời gian này. Hãy đồng bộ dữ liệu trước.',
     });
   }
 
-  // 2. Aggregate snapshots by campaign_id
-  const campMap = new Map<string, CampaignData & { _totalImpressions: number; _totalClicks: number }>();
-  const dateSet = new Map<string, Set<string>>();
+  // 2. Group snapshots by campaign_id → daily arrays
+  const campDailyMap = new Map<string, {
+    name: string;
+    fbStatus: string;
+    dailyBudget: number;
+    dailySnapshots: DailySnapshot[];
+    createdTime: string | null;
+  }>();
 
   for (const snap of rawSnapshots) {
-    const existing = campMap.get(snap.campaign_id);
+    const existing = campDailyMap.get(snap.campaign_id);
+    const dailySnap: DailySnapshot = {
+      snapshot_date: snap.snapshot_date,
+      spend: snap.spend || 0,
+      conversions: snap.conversions || 0,
+      impressions: snap.impressions || 0,
+      clicks: snap.clicks || 0,
+      revenue_fb: snap.revenue_fb || 0,
+      ctr: snap.ctr || 0,
+      cpm: snap.cpm || 0,
+      cpc: snap.cpc || 0,
+      frequency: snap.frequency || 0,
+      add_to_cart: snap.add_to_cart || 0,
+      initiate_checkout: snap.initiate_checkout || 0,
+    };
+
     if (existing) {
-      existing.spend += snap.spend || 0;
-      existing.conversions += snap.conversions || 0;
-      existing._totalImpressions += snap.impressions || 0;
-      existing._totalClicks += snap.clicks || 0;
-      if (snap.revenue_fb) existing.roas_fb = (existing.roas_fb || 0) + snap.revenue_fb;
-      dateSet.get(snap.campaign_id)!.add(snap.snapshot_date);
+      existing.dailySnapshots.push(dailySnap);
       // Keep latest metadata
-      if (snap.snapshot_date > existing.campaignName) {
+      if (snap.snapshot_date >= existing.dailySnapshots[0].snapshot_date) {
         existing.fbStatus = snap.fb_status || 'ACTIVE';
         existing.dailyBudget = snap.daily_budget || 0;
       }
     } else {
-      campMap.set(snap.campaign_id, {
-        campaignId: snap.campaign_id,
-        campaignName: snap.campaign_name,
+      campDailyMap.set(snap.campaign_id, {
+        name: snap.campaign_name,
         fbStatus: snap.fb_status || 'ACTIVE',
-        spend: snap.spend || 0,
-        conversions: snap.conversions || 0,
-        cpa: null,
-        ctr: 0,
-        cpm: 0,
-        roas_fb: snap.revenue_fb || 0,
         dailyBudget: snap.daily_budget || 0,
-        daysRunning: 1,
-        daysWithData: 1,
-        _totalImpressions: snap.impressions || 0,
-        _totalClicks: snap.clicks || 0,
+        dailySnapshots: [dailySnap],
+        createdTime: snap.campaign_created_time || null,
       });
-      dateSet.set(snap.campaign_id, new Set([snap.snapshot_date]));
     }
   }
-
-  // Compute derived metrics
-  const campaigns: CampaignData[] = Array.from(campMap.values()).map((c) => {
-    c.cpa = c.conversions > 0 ? c.spend / c.conversions : null;
-    c.ctr = c._totalImpressions > 0 ? (c._totalClicks / c._totalImpressions) * 100 : 0;
-    c.cpm = c._totalImpressions > 0 ? (c.spend / c._totalImpressions) * 1000 : 0;
-    c.roas_fb = c.spend > 0 && c.roas_fb ? c.roas_fb / c.spend : null;
-    c.daysWithData = dateSet.get(c.campaignId)?.size || 1;
-    c.daysRunning = c.daysWithData; // Simplified — could use campaign_created_time if available
-    return c as CampaignData;
-  });
 
   // 3. Get business profile
   const { data: profile } = await supabaseAdmin
@@ -159,7 +178,124 @@ async function generateAndReturnPlan(date: string, days: number) {
     avgRepeatOrders: profile?.avg_repeat_orders ?? 1.5,
   };
 
-  // 4. Get Shopify revenue for margin
+  const breakevenCpa = plannerConfig.aov * (1 - plannerConfig.avgCogsRate);
+
+  // 4. Build enriched CampaignData[] from daily snapshots
+  const campaigns: CampaignData[] = [];
+
+  for (const [campaignId, campInfo] of campDailyMap) {
+    const snaps = campInfo.dailySnapshots;
+    const sortedSnaps = [...snaps].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+
+    // Today's snapshot (latest date)
+    const todaySnap = sortedSnaps[sortedSnaps.length - 1];
+
+    // 7-day aggregation
+    const totalSpend7d = snaps.reduce((s, d) => s + d.spend, 0);
+    const totalConv7d = snaps.reduce((s, d) => s + d.conversions, 0);
+    const totalAtc7d = snaps.reduce((s, d) => s + d.add_to_cart, 0);
+    const totalIc7d = snaps.reduce((s, d) => s + d.initiate_checkout, 0);
+    const totalImpressions7d = snaps.reduce((s, d) => s + d.impressions, 0);
+    const totalClicks7d = snaps.reduce((s, d) => s + d.clicks, 0);
+    const totalRevenue7d = snaps.reduce((s, d) => s + d.revenue_fb, 0);
+
+    const avgCPA7d = totalConv7d > 0 ? totalSpend7d / totalConv7d : null;
+    const avgCTR7d = totalImpressions7d > 0 ? (totalClicks7d / totalImpressions7d) * 100 : 0;
+    const avgFrequency7d = snaps.length > 0
+      ? snaps.reduce((s, d) => s + d.frequency, 0) / snaps.length
+      : 0;
+    const avgAOV7d = totalConv7d > 0 ? totalRevenue7d / totalConv7d : null;
+    const profitPerOrder7d = (avgAOV7d !== null && avgCPA7d !== null)
+      ? avgAOV7d * (1 - plannerConfig.avgCogsRate) - avgCPA7d
+      : null;
+
+    // Trends: compare today vs 3 days ago
+    let ctrTrend = 0;
+    let cpaTrend = 0;
+    let cpmTrend = 0;
+    if (sortedSnaps.length >= 4) {
+      const threeDaysAgo = sortedSnaps[sortedSnaps.length - 4];
+      const current = todaySnap;
+      ctrTrend = threeDaysAgo.ctr > 0
+        ? ((current.ctr - threeDaysAgo.ctr) / threeDaysAgo.ctr) * 100
+        : 0;
+      cpmTrend = threeDaysAgo.cpm > 0
+        ? ((current.cpm - threeDaysAgo.cpm) / threeDaysAgo.cpm) * 100
+        : 0;
+      // CPA trend from daily conversion data
+      const todayCPA = current.conversions > 0 ? current.spend / current.conversions : null;
+      const prevCPA = threeDaysAgo.conversions > 0 ? threeDaysAgo.spend / threeDaysAgo.conversions : null;
+      cpaTrend = (todayCPA !== null && prevCPA !== null && prevCPA > 0)
+        ? ((todayCPA - prevCPA) / prevCPA) * 100
+        : 0;
+    }
+
+    // Stability: days with purchases
+    const daysWithPurchases = snaps.filter(d => d.conversions > 0).length;
+
+    // Consecutive profit days (from most recent)
+    let consecutiveProfitDays = 0;
+    for (let i = sortedSnaps.length - 1; i >= 0; i--) {
+      const d = sortedSnaps[i];
+      const dailyRevenue = d.revenue_fb;
+      const dailyProfit = dailyRevenue * (1 - plannerConfig.avgCogsRate) - d.spend;
+      if (dailyProfit > 0 && d.conversions > 0) {
+        consecutiveProfitDays++;
+      } else {
+        break;
+      }
+    }
+
+    // Today's CPA
+    const todayCpa = todaySnap.conversions > 0 ? todaySnap.spend / todaySnap.conversions : null;
+
+    // ROAS
+    const totalRoas = totalSpend7d > 0 && totalRevenue7d > 0
+      ? totalRevenue7d / totalSpend7d
+      : null;
+
+    campaigns.push({
+      campaignId,
+      campaignName: campInfo.name,
+      fbStatus: campInfo.fbStatus,
+      // Today
+      spend: todaySnap.spend,
+      conversions: todaySnap.conversions,
+      cpa: todayCpa,
+      ctr: todaySnap.ctr,
+      cpm: todaySnap.cpm,
+      cpc: todaySnap.cpc,
+      roas_fb: totalRoas,
+      dailyBudget: campInfo.dailyBudget,
+      daysRunning: snaps.length,
+      daysWithData: snaps.length,
+      addToCart: todaySnap.add_to_cart,
+      initiateCheckout: todaySnap.initiate_checkout,
+      revenueFb: todaySnap.revenue_fb,
+      impressions: todaySnap.impressions,
+      clicks: todaySnap.clicks,
+      frequency: todaySnap.frequency,
+      // 7-day
+      spend7d: totalSpend7d,
+      conversions7d: totalConv7d,
+      atc7d: totalAtc7d,
+      ic7d: totalIc7d,
+      avgCPA7d,
+      avgCTR7d,
+      avgFrequency7d,
+      avgAOV7d,
+      profitPerOrder7d,
+      // Trends
+      ctrTrend,
+      cpaTrend,
+      cpmTrend,
+      // Stability
+      daysWithPurchases,
+      consecutiveProfitDays,
+    });
+  }
+
+  // 5. Get Shopify revenue for margin
   const { data: financials } = await supabaseAdmin
     .from('daily_financials')
     .select('shopify_revenue')
@@ -170,14 +306,14 @@ async function generateAndReturnPlan(date: string, days: number) {
     ? financials.reduce((sum: number, f: { shopify_revenue: number }) => sum + (f.shopify_revenue || 0), 0)
     : 0;
 
-  const totalAdSpend = campaigns.reduce((sum, c) => sum + c.spend, 0);
+  const totalAdSpend = campaigns.reduce((sum, c) => sum + c.spend7d, 0);
   const marginResult = calculateDailyMargin(shopifyRevenue, totalAdSpend, {
     targetMarginMin: plannerConfig.targetMarginMin,
     targetMarginMax: plannerConfig.targetMarginMax,
     avgCogsRate: plannerConfig.avgCogsRate,
   });
 
-  // 5. AI config (if key exists)
+  // 6. AI config (if key exists)
   const aiConfig = profile?.ai_api_key
     ? {
         provider: profile.ai_provider || 'openai',
@@ -186,10 +322,10 @@ async function generateAndReturnPlan(date: string, days: number) {
       }
     : undefined;
 
-  // 6. Generate plan
+  // 7. Generate plan
   const plan = await generateActionPlanV2(campaigns, plannerConfig, marginResult, days, aiConfig);
 
-  // 7. Save to DB (best effort)
+  // 8. Save to DB (best effort)
   try {
     await supabaseAdmin.from('action_plans').upsert(
       {
@@ -260,16 +396,19 @@ async function generateAndReturnPlan(date: string, days: number) {
       daysRemaining: daysInMonth - dayOfMonth,
     };
 
-    const goalCampaigns: CampaignForGoal[] = campaigns.map(c => ({
-      campaignId: c.campaignId,
-      campaignName: c.campaignName,
-      status: 'LEARNING', // Will use classified status if available
-      spend: c.spend,
-      conversions: c.conversions,
-      cpa: c.cpa,
-      dailyBudget: c.dailyBudget,
-      roas: c.roas_fb,
-    }));
+    const goalCampaigns: CampaignForGoal[] = campaigns.map(c => {
+      const evalResult = plan.evaluations.find(e => e.campaignId === c.campaignId);
+      return {
+        campaignId: c.campaignId,
+        campaignName: c.campaignName,
+        status: evalResult?.lifecycle || 'LEARNING',
+        spend: c.spend7d,
+        conversions: c.conversions7d,
+        cpa: c.avgCPA7d,
+        dailyBudget: c.dailyBudget,
+        roas: c.roas_fb,
+      };
+    });
 
     goalBreakdown = calculateGoalBreakdown(goalConfig, actualMetrics, goalCampaigns);
   } catch (goalErr) {
