@@ -53,6 +53,14 @@ interface PlanResponse {
     accountHealth?: string | null;
   } | null;
   goal: GoalBreakdown | null;
+  margin: {
+    shopifyRevenue: number;
+    totalAdSpend: number;
+    netProfit: number;
+    dailyMargin: number;
+    marginPercent: string;
+    marginStatus: string;
+  } | null;
   cached: boolean;
   message?: string;
 }
@@ -126,14 +134,17 @@ function GoalProgressBar({ goal }: { goal: GoalBreakdown }) {
   );
 }
 
-function DailyKPIs({ goal }: { goal: GoalBreakdown }) {
-  const profitColor = goal.isOnTrack ? 'var(--color-winner)' : 'var(--color-kill)';
+function DailyKPIs({ goal, margin }: { goal: GoalBreakdown; margin: PlanResponse['margin'] }) {
+  const netProfit = margin?.netProfit ?? 0;
+  const adSpend = margin?.totalAdSpend ?? goal.actual.todayAdSpend;
+  const todayCpa = goal.actual.todayOrders > 0 ? adSpend / goal.actual.todayOrders : null;
+  const profitColor = netProfit > 0 ? 'var(--color-winner)' : 'var(--color-kill)';
   return (
     <div className="kpi-grid mb-lg">
       <div className="card kpi-card" id="kpi-daily-profit">
         <div className="card-title">Profit hôm nay</div>
         <div className="card-value" style={{ color: profitColor }}>
-          {formatCurrency(goal.actual.todayRevenue * 0.8 - goal.actual.todayAdSpend)}
+          {formatCurrency(netProfit)}
         </div>
         <div className="card-subtitle">Target: {formatCurrency(goal.dailyProfitTarget)}/ngày</div>
       </div>
@@ -144,14 +155,14 @@ function DailyKPIs({ goal }: { goal: GoalBreakdown }) {
       </div>
       <div className="card kpi-card" id="kpi-daily-cpa">
         <div className="card-title">CPA thực tế</div>
-        <div className="card-value" style={{ color: goal.actual.todayCpa && goal.actual.todayCpa > goal.profitPerOrder + (goal.actual.todayCpa ?? 0) ? 'var(--color-kill)' : 'var(--text-primary)' }}>
-          {goal.actual.todayCpa ? formatCurrency(goal.actual.todayCpa) : '—'}
+        <div className="card-value">
+          {todayCpa ? formatCurrency(todayCpa) : '—'}
         </div>
         <div className="card-subtitle">Profit/đơn: {formatCurrency(goal.profitPerOrder)}</div>
       </div>
       <div className="card kpi-card" id="kpi-daily-spend">
         <div className="card-title">Ad Spend hôm nay</div>
-        <div className="card-value">{formatCurrency(goal.actual.todayAdSpend)}</div>
+        <div className="card-value">{formatCurrency(adSpend)}</div>
         <div className="card-subtitle">Đề xuất: {formatCurrency(goal.dailyAdBudgetNeeded)}/ngày</div>
       </div>
     </div>
@@ -486,7 +497,7 @@ export default function ActionPlanPage() {
             )}
 
             {/* Section 2: Daily KPIs */}
-            {goal && <DailyKPIs goal={goal} />}
+            {goal && <DailyKPIs goal={goal} margin={data?.margin ?? null} />}
 
             {/* Section 3: Dual Tables */}
             <div className="grid-2 mb-lg">

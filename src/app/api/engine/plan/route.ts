@@ -428,6 +428,7 @@ async function generateAndReturnPlan(date: string, days: number) {
     days,
     plan,
     goal: goalBreakdown,
+    margin: marginResult,
     cached: false,
   });
 }
