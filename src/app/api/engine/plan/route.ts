@@ -295,23 +295,27 @@ async function generateAndReturnPlan(date: string, days: number) {
     });
   }
 
-  // 5. Get Shopify revenue — TODAY for display, full range for evaluation
-  const { data: financials } = await supabaseAdmin
+  // 5. Get TODAY's numbers — same source as Dashboard
+  // Dashboard uses: /api/facebook/campaigns?days=1 → snapshot_date = today, spend > 0
+  // Dashboard uses: /api/engine/margin?days=1 → daily_financials report_date = today
+  const { data: todaySnapshots } = await supabaseAdmin
+    .from('campaign_snapshots')
+    .select('spend, conversions')
+    .eq('snapshot_date', date)
+    .gt('spend', 0);
+
+  const todaySpend = todaySnapshots?.reduce((s: number, r: { spend: number }) => s + (r.spend || 0), 0) ?? 0;
+  const todayOrders = todaySnapshots?.reduce((s: number, r: { conversions: number }) => s + (r.conversions || 0), 0) ?? 0;
+
+  const { data: todayFinancialRow } = await supabaseAdmin
     .from('daily_financials')
-    .select('shopify_revenue, report_date')
-    .gte('report_date', fromDate)
-    .lte('report_date', date);
+    .select('shopify_revenue')
+    .eq('report_date', date)
+    .limit(1)
+    .single();
 
-  // TODAY's revenue only (for KPIs and margin display)
-  const todayRevenue = financials
-    ? financials.filter((f: { report_date: string }) => f.report_date === date)
-        .reduce((sum: number, f: { shopify_revenue: number }) => sum + (f.shopify_revenue || 0), 0)
-    : 0;
+  const todayRevenue = todayFinancialRow?.shopify_revenue ?? 0;
 
-  // TODAY's ad spend only
-  const todaySpend = campaigns.reduce((sum, c) => sum + c.spend, 0);
-
-  // Use TODAY's data for margin display (matches Dashboard)
   const marginResult = calculateDailyMargin(todayRevenue, todaySpend, {
     targetMarginMin: plannerConfig.targetMarginMin,
     targetMarginMax: plannerConfig.targetMarginMax,
@@ -386,25 +390,11 @@ async function generateAndReturnPlan(date: string, days: number) {
     const mtdAdSpend = mtdSnaps?.reduce((s: number, r: { spend: number }) => s + (r.spend || 0), 0) ?? 0;
     const mtdOrders = mtdSnaps?.reduce((s: number, r: { conversions: number }) => s + (r.conversions || 0), 0) ?? 0;
 
-    // Get TODAY-ONLY Shopify revenue (separate from 7-day window)
-    const { data: todayFinancials } = await supabaseAdmin
-      .from('daily_financials')
-      .select('shopify_revenue')
-      .eq('report_date', date)
-      .limit(1)
-      .single();
-
-    const todayShopifyRevenue = todayFinancials?.shopify_revenue ?? 0;
-
-    // Get TODAY-ONLY ad spend + orders from snapshots
-    const todayAdSpendTotal = campaigns.reduce((s, c) => s + c.spend, 0);
-    const todayOrdersTotal = campaigns.reduce((s, c) => s + c.conversions, 0);
-
     const actualMetrics: ActualMetrics = {
-      todayRevenue: todayShopifyRevenue,
-      todayAdSpend: todayAdSpendTotal,
-      todayOrders: todayOrdersTotal,
-      todayCpa: todayOrdersTotal > 0 ? todayAdSpendTotal / todayOrdersTotal : null,
+      todayRevenue: todayRevenue,
+      todayAdSpend: todaySpend,
+      todayOrders: todayOrders,
+      todayCpa: todayOrders > 0 ? todaySpend / todayOrders : null,
       monthToDateProfit: mtdRevenue * (1 - goalConfig.avgCogsRate) - mtdAdSpend,
       monthToDateRevenue: mtdRevenue,
       monthToDateAdSpend: mtdAdSpend,
