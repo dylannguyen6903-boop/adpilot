@@ -33,16 +33,17 @@ interface ConnectionsResponse {
 export default function SettingsPage() {
   // Profile form state
   const [storeName, setStoreName] = useState('Frenzidea');
-  const [aov, setAov] = useState(87);
+  const [aov, setAov] = useState(86);
   const [marginMin, setMarginMin] = useState(17);
   const [marginMax, setMarginMax] = useState(20);
-  const [cogsRate, setCogsRate] = useState(80);
+  const [cogsRate, setCogsRate] = useState(20);
   const [targetCpa, setTargetCpa] = useState(40);
   const [returningRate, setReturningRate] = useState(22);
   const [repeatOrders, setRepeatOrders] = useState(1.5);
   const [thresholdWinner, setThresholdWinner] = useState(0.7);
   const [thresholdPromising, setThresholdPromising] = useState(0.4);
   const [thresholdWatch, setThresholdWatch] = useState(0.2);
+  const [monthlyProfitTarget, setMonthlyProfitTarget] = useState(15000);
 
   // Connection form state
   const [fbAccounts, setFbAccounts] = useState<{ id: string; accessToken: string; adAccountId: string; name?: string }[]>([]);
@@ -86,6 +87,7 @@ export default function SettingsPage() {
     if (p.threshold_winner) setThresholdWinner(p.threshold_winner as number);
     if (p.threshold_promising) setThresholdPromising(p.threshold_promising as number);
     if (p.threshold_watch) setThresholdWatch(p.threshold_watch as number);
+    if (p.monthly_profit_target) setMonthlyProfitTarget(p.monthly_profit_target as number);
     // AI config
     if (p.ai_provider) setAiProvider(p.ai_provider as string);
     if (p.ai_api_key) setAiApiKey(p.ai_api_key as string);
@@ -117,6 +119,7 @@ export default function SettingsPage() {
         thresholdWinner,
         thresholdPromising,
         thresholdWatch,
+        monthlyProfitTarget,
       }),
     });
     if (putRes.ok) {
@@ -227,6 +230,47 @@ export default function SettingsPage() {
               <div className="form-group">
                 <label className="form-label">Số đơn trung bình của khách hàng lặp lại</label>
                 <input className="form-input" type="number" value={repeatOrders} step={0.1} onChange={(e) => setRepeatOrders(Number(e.target.value))} />
+              </div>
+
+              {/* Monthly Profit Target */}
+              <div style={{ borderTop: '1px solid var(--border-primary)', paddingTop: 'var(--space-md)', marginTop: 'var(--space-sm)' }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: 'var(--text-base)', fontWeight: 700 }}>Mục tiêu lợi nhuận hàng tháng ($)</label>
+                  <input className="form-input" type="number" value={monthlyProfitTarget} onChange={(e) => setMonthlyProfitTarget(Number(e.target.value))} style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }} id="input-monthly-target" />
+                  <span className="form-helper">Net profit mục tiêu sau COGS + chi phí quảng cáo</span>
+                </div>
+                {/* Live preview calculation */}
+                {(() => {
+                  const profitPerOrder = aov * (1 - cogsRate / 100) - targetCpa;
+                  const dailyTarget = monthlyProfitTarget / 30 * 1.10;
+                  const ordersNeeded = profitPerOrder > 0 ? Math.ceil(dailyTarget / profitPerOrder) : 0;
+                  const adBudgetNeeded = ordersNeeded * targetCpa;
+                  const revenueNeeded = ordersNeeded * aov;
+                  const isViable = profitPerOrder > 0;
+                  return (
+                    <div style={{
+                      background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)',
+                      padding: 'var(--space-sm) var(--space-md)', marginTop: 'var(--space-xs)',
+                      fontSize: 'var(--text-xs)', lineHeight: '1.6',
+                      border: `1px solid ${isViable ? 'var(--border-primary)' : 'var(--color-kill)'}`,
+                    }}>
+                      {isViable ? (
+                        <>
+                          <div style={{ color: 'var(--text-secondary)', marginBottom: 2 }}>
+                            <strong>Preview mục tiêu hàng ngày</strong> (có buffer 10%)
+                          </div>
+                          <div>→ Profit/đơn: <strong style={{ color: 'var(--color-winner)' }}>${profitPerOrder.toFixed(1)}</strong></div>
+                          <div>→ Cần <strong>{ordersNeeded}</strong> đơn/ngày • Revenue <strong>${revenueNeeded.toLocaleString()}</strong>/ngày</div>
+                          <div>→ Ad budget cần: <strong>${adBudgetNeeded.toLocaleString()}</strong>/ngày</div>
+                        </>
+                      ) : (
+                        <div style={{ color: 'var(--color-kill)' }}>
+                          ⚠ CPA (${targetCpa}) ≥ biên lợi nhuận/đơn (${(aov * (1 - cogsRate / 100)).toFixed(1)}). Cần giảm CPA hoặc tăng AOV.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {profileMsg && (
@@ -438,6 +482,7 @@ export default function SettingsPage() {
                           returningRate: returningRate / 100,
                           avgRepeatOrders: repeatOrders,
                           thresholdWinner, thresholdPromising, thresholdWatch,
+                          monthlyProfitTarget,
                           aiProvider, aiApiKey, aiModel,
                         }),
                       });

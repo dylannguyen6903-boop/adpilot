@@ -1415,3 +1415,177 @@ ul, ol {
   background: var(--bg-glass);
   border-radius: var(--radius-sm);
 }
+
+
+/* ============================================
+   Goal Progress Bar
+   ============================================ */
+.goal-progress-card {
+  margin-bottom: var(--space-lg);
+  background: linear-gradient(135deg, rgba(28, 28, 30, 0.95) 0%, rgba(44, 44, 46, 0.8) 100%);
+}
+
+.goal-bar-track {
+  width: 100%;
+  height: 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  position: relative;
+  overflow: visible;
+}
+
+.goal-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 1s cubic-bezier(0.25, 0.1, 0.25, 1);
+  position: relative;
+  box-shadow: 0 0 12px rgba(var(--accent-primary), 0.3);
+}
+
+.goal-bar-marker {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 18px;
+  background: var(--text-muted);
+  border-radius: 1px;
+  opacity: 0.5;
+}
+
+
+/* ============================================
+   AI Chat Panel
+   ============================================ */
+.ai-chat-panel {
+  position: fixed;
+  bottom: 0;
+  right: var(--space-lg);
+  width: 420px;
+  max-width: calc(100vw - var(--sidebar-width) - var(--space-lg) * 2);
+  z-index: var(--z-dropdown);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: rgba(28, 28, 30, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-primary);
+  border-bottom: none;
+  box-shadow: var(--shadow-lg);
+  transition: all var(--transition-base);
+}
+
+.ai-chat-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.ai-chat-toggle:hover {
+  background: var(--bg-card-hover);
+}
+
+.ai-chat-body {
+  display: flex;
+  flex-direction: column;
+  height: 380px;
+}
+
+.ai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.chat-msg {
+  max-width: 85%;
+  animation: fadeIn 0.2s ease;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+}
+
+.chat-msg.assistant {
+  align-self: flex-start;
+}
+
+.chat-msg-content {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.chat-msg.user .chat-msg-content {
+  background: var(--accent-primary);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg.assistant .chat-msg-content {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border-primary);
+}
+
+.ai-chat-input {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-top: 1px solid var(--border-primary);
+}
+
+.ai-chat-input .form-input {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+
+/* ============================================
+   Confidence Badge (Plan page)
+   ============================================ */
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-mono);
+}
+
+.confidence-badge.high {
+  background: var(--color-winner-bg);
+  color: var(--color-winner);
+}
+
+.confidence-badge.medium {
+  background: var(--color-watch-bg);
+  color: var(--color-watch);
+}
+
+.confidence-badge.low {
+  background: var(--color-kill-bg);
+  color: var(--color-kill);
+}

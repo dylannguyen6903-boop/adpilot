@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateActionPlanV2, type CampaignData, type PlannerConfig } from '@/engine/plannerV2';
 import { calculateDailyMargin } from '@/engine/margin';
+import { calculateGoalBreakdown, type GoalConfig, type ActualMetrics, type CampaignForGoal } from '@/engine/goalEngine';
 import { getAdAccountToday } from '@/lib/timezone';
 
 export const maxDuration = 300; // 5 minutes for Vercel Pro
@@ -152,8 +153,8 @@ async function generateAndReturnPlan(date: string, days: number) {
     targetCpa: profile?.target_cpa ?? 40,
     targetMarginMin: profile?.target_margin_min ?? 0.17,
     targetMarginMax: profile?.target_margin_max ?? 0.20,
-    avgCogsRate: profile?.avg_cogs_rate ?? 0.80,
-    aov: profile?.aov ?? 87,
+    avgCogsRate: profile?.avg_cogs_rate ?? 0.20,
+    aov: profile?.aov ?? 86,
     returningRate: profile?.returning_rate ?? 0.22,
     avgRepeatOrders: profile?.avg_repeat_orders ?? 1.5,
   };
@@ -206,11 +207,81 @@ async function generateAndReturnPlan(date: string, days: number) {
     // Non-critical: plan was generated successfully even if DB save fails
   }
 
+  // ── Goal Breakdown (parallel to plan generation) ──
+  let goalBreakdown = null;
+  try {
+    const goalConfig: GoalConfig = {
+      monthlyProfitTarget: profile?.monthly_profit_target ?? 15000,
+      aov: plannerConfig.aov,
+      avgCogsRate: plannerConfig.avgCogsRate,
+      targetCpa: plannerConfig.targetCpa,
+      safetyBuffer: 1.10,
+    };
+
+    const dayOfMonth = new Date(date).getDate();
+    const daysInMonth = new Date(
+      new Date(date).getFullYear(),
+      new Date(date).getMonth() + 1,
+      0
+    ).getDate();
+
+    // Get MTD data for goal tracking
+    const firstOfMonth = date.slice(0, 8) + '01';
+    const { data: mtdFinancials } = await supabaseAdmin
+      .from('daily_financials')
+      .select('shopify_revenue')
+      .gte('report_date', firstOfMonth)
+      .lte('report_date', date);
+
+    const mtdRevenue = mtdFinancials?.reduce((s: number, r: { shopify_revenue: number }) => s + (r.shopify_revenue || 0), 0) ?? 0;
+
+    const { data: mtdSnaps } = await supabaseAdmin
+      .from('campaign_snapshots')
+      .select('spend, conversions')
+      .gte('snapshot_date', firstOfMonth)
+      .lte('snapshot_date', date)
+      .gt('spend', 0);
+
+    const mtdAdSpend = mtdSnaps?.reduce((s: number, r: { spend: number }) => s + (r.spend || 0), 0) ?? 0;
+    const mtdOrders = mtdSnaps?.reduce((s: number, r: { conversions: number }) => s + (r.conversions || 0), 0) ?? 0;
+
+    const totalOrders = campaigns.reduce((s, c) => s + c.conversions, 0);
+
+    const actualMetrics: ActualMetrics = {
+      todayRevenue: shopifyRevenue,
+      todayAdSpend: totalAdSpend,
+      todayOrders: totalOrders,
+      todayCpa: totalOrders > 0 ? totalAdSpend / totalOrders : null,
+      monthToDateProfit: mtdRevenue * (1 - goalConfig.avgCogsRate) - mtdAdSpend,
+      monthToDateRevenue: mtdRevenue,
+      monthToDateAdSpend: mtdAdSpend,
+      monthToDateOrders: mtdOrders,
+      daysElapsed: dayOfMonth,
+      daysRemaining: daysInMonth - dayOfMonth,
+    };
+
+    const goalCampaigns: CampaignForGoal[] = campaigns.map(c => ({
+      campaignId: c.campaignId,
+      campaignName: c.campaignName,
+      status: 'LEARNING', // Will use classified status if available
+      spend: c.spend,
+      conversions: c.conversions,
+      cpa: c.cpa,
+      dailyBudget: c.dailyBudget,
+      roas: c.roas_fb,
+    }));
+
+    goalBreakdown = calculateGoalBreakdown(goalConfig, actualMetrics, goalCampaigns);
+  } catch (goalErr) {
+    console.error('Goal breakdown failed (non-critical):', goalErr);
+  }
+
   return NextResponse.json({
     success: true,
     date,
     days,
     plan,
+    goal: goalBreakdown,
     cached: false,
   });
 }
