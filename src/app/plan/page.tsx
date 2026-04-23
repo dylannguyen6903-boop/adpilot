@@ -299,19 +299,31 @@ function CampaignCard({ a, targetCpa }: { a: ActionItem; targetCpa: number }) {
   );
 }
 
-function ActionSection({ title, actions, color, targetCpa }: { title: string; actions: ActionItem[]; color: string; targetCpa: number }) {
+function ActionSection({ title, actions, color, targetCpa, sortKey = 'spend', defaultOpen = true }: { title: string; actions: ActionItem[]; color: string; targetCpa: number; sortKey?: 'spend' | 'profit'; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  // Sort by priority
+  const sorted = [...actions].sort((a, b) => {
+    if (sortKey === 'profit') return (b.profitPerOrder ?? -999) - (a.profitPerOrder ?? -999);
+    return (b.spend7d ?? 0) - (a.spend7d ?? 0);
+  });
+
+  const totalSpend7d = actions.reduce((s, a) => s + (a.spend7d ?? 0), 0);
+
   return (
     <div className="card" style={{ padding: 'var(--space-md)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
+      <div onClick={() => setIsOpen(!isOpen)} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: isOpen ? 'var(--space-md)' : 0, cursor: 'pointer', userSelect: 'none' }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} />
         <span style={{ fontSize: 16, fontWeight: 700 }}>{title}</span>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>({actions.length})</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>Chi 7 ngày: ${totalSpend7d.toFixed(0)}</span>
+        <span style={{ fontSize: 14, color: 'var(--text-muted)', marginLeft: 4 }}>{isOpen ? '▼' : '▶'}</span>
       </div>
-      {actions.length === 0 ? (
+      {isOpen && (actions.length === 0 ? (
         <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--text-muted)' }}>Không có camp nào</div>
       ) : (
-        actions.map(a => <CampaignCard key={a.id} a={a} targetCpa={targetCpa} />)
-      )}
+        sorted.map(a => <CampaignCard key={a.id} a={a} targetCpa={targetCpa} />)
+      ))}
     </div>
   );
 }
@@ -430,6 +442,67 @@ function AIChatPanel({ planSummary }: { planSummary: string | null }) {
   );
 }
 
+function AccountOverview({ actions, margin }: { actions: ActionItem[]; margin: { netProfit: number; totalAdSpend: number; shopifyRevenue: number; marginPercent: string } | null }) {
+  const kills = actions.filter(a => a.type === 'KILL');
+  const scales = actions.filter(a => a.type === 'SCALE');
+  const watches = actions.filter(a => a.type === 'WATCH');
+
+  const wastedBudget = kills.reduce((s, a) => s + (a.oldBudget ?? 0), 0);
+  const wastedSpend7d = kills.reduce((s, a) => s + (a.spend7d ?? 0), 0);
+  const totalSpend7d = actions.reduce((s, a) => s + (a.spend7d ?? 0), 0);
+  const totalOrders7d = actions.reduce((s, a) => s + (a.conversions7d ?? 0), 0);
+  const profitableCamps = actions.filter(a => (a.profitPerOrder ?? 0) > 0);
+  const unprofitableCamps = actions.filter(a => a.conversions7d && a.conversions7d > 0 && (a.profitPerOrder ?? 0) < 0);
+  const noOrderCamps = actions.filter(a => (a.spend7d ?? 0) > 30 && !(a.conversions7d));
+
+  const profitToday = margin?.netProfit ?? 0;
+  const marginPct = margin?.marginPercent ?? '0%';
+  const isHealthy = profitToday > 0 && parseFloat(marginPct) >= 17;
+
+  return (
+    <div className="card mb-md" style={{ padding: 'var(--space-md)' }}>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        🧠 Tổng quan Tài khoản
+        <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: isHealthy ? '#14532d' : '#7f1d1d', color: isHealthy ? '#4ade80' : '#f87171', fontWeight: 600 }}>
+          {isHealthy ? '✅ Khỏe mạnh' : '⚠️ Cần tối ưu'}
+        </span>
+      </div>
+
+      {/* Tình hình */}
+      <div style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' }}>
+        <div>📊 <strong>Tổng chi 7 ngày:</strong> ${totalSpend7d.toFixed(0)} — <strong>{totalOrders7d} đơn</strong> — CPA trung bình: ${totalOrders7d > 0 ? (totalSpend7d / totalOrders7d).toFixed(0) : '∞'}</div>
+        <div>💰 <strong>Profit hôm nay:</strong> <span style={{ color: profitToday > 0 ? '#4ade80' : '#f87171', fontWeight: 700 }}>${profitToday.toFixed(0)}</span> — Margin: <span style={{ color: parseFloat(marginPct) >= 17 ? '#4ade80' : '#f87171' }}>{marginPct}</span> (mục tiêu ≥ 17%)</div>
+        <div>🟢 <strong>{profitableCamps.length}</strong> camp có lời | 🔴 <strong>{unprofitableCamps.length}</strong> camp lỗ | ⚪ <strong>{noOrderCamps.length}</strong> camp chi &gt;$30 chưa có đơn</div>
+      </div>
+
+      {/* Khuyến nghị */}
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 'var(--space-xs)', color: 'var(--text-primary)' }}>📋 Khuyến nghị:</div>
+      <div style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+        {kills.length > 0 && (
+          <div style={{ padding: '6px 10px', background: '#ef444415', borderRadius: 6, marginBottom: 4 }}>
+            🔴 <strong>Tắt {kills.length} camp</strong> — tiết kiệm <strong style={{ color: '#4ade80' }}>${wastedBudget}/ngày</strong> (đã chi ${wastedSpend7d.toFixed(0)} trong 7 ngày mà không hiệu quả)
+          </div>
+        )}
+        {scales.length > 0 && (
+          <div style={{ padding: '6px 10px', background: '#22c55e15', borderRadius: 6, marginBottom: 4 }}>
+            🟢 <strong>Tăng budget {scales.length} camp</strong> — các camp có CPA tốt dưới ${42} và đang có lời
+          </div>
+        )}
+        {watches.length > 0 && (
+          <div style={{ padding: '6px 10px', background: '#f9731615', borderRadius: 6, marginBottom: 4 }}>
+            🟠 <strong>Theo dõi {watches.length} camp</strong> — chưa đủ data hoặc đang trong giai đoạn đánh giá, chưa nên thay đổi
+          </div>
+        )}
+        {unprofitableCamps.length > 0 && (
+          <div style={{ padding: '6px 10px', background: '#f9731615', borderRadius: 6, marginBottom: 4 }}>
+            ⚠️ <strong>{unprofitableCamps.length} camp có đơn nhưng lỗ</strong> — kiểm tra lại creative hoặc audience, CPA vượt ngưỡng lợi nhuận
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────
@@ -483,17 +556,8 @@ export default function ActionPlanPage() {
             {/* Section 1: Goal Progress */}
             {goal && <GoalProgressBar goal={goal} />}
 
-            {/* Account Health + AI Summary */}
-            {plan?.aiSummary && (
-              <div className="ai-summary-card mb-md" id="ai-summary">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)' }}>
-                  <span className="ai-badge ai-label">🧠 Tổng quan Tài khoản</span>
-                  {plan.aiUsed && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{plan.aiTokens} tokens</span>}
-                  {plan.learningCount !== undefined && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>⚫ {plan.learningCount} camp đang học</span>}
-                </div>
-                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: 'var(--leading-relaxed)', margin: 0 }}>{plan.aiSummary}</p>
-              </div>
-            )}
+            {/* Account Overview - data-driven Vietnamese */}
+            {actions.length > 0 && <AccountOverview actions={actions} margin={data?.margin ?? null} />}
 
             {/* Section 2: Daily KPIs */}
             {goal && <DailyKPIs goal={goal} margin={data?.margin ?? null} />}
@@ -501,16 +565,16 @@ export default function ActionPlanPage() {
             {/* Section 3: Campaign Actions */}
             {actionKill.length > 0 && (
               <div className="mb-md">
-                <ActionSection title="Nên Tắt" actions={actionKill} color="#ef4444" targetCpa={targetCpa} />
+                <ActionSection title="Nên Tắt" actions={actionKill} color="#ef4444" targetCpa={targetCpa} sortKey="spend" />
               </div>
             )}
             {actionScale.length > 0 && (
               <div className="mb-md">
-                <ActionSection title="Nên Tăng Budget" actions={actionScale} color="#22c55e" targetCpa={targetCpa} />
+                <ActionSection title="Nên Tăng Budget" actions={actionScale} color="#22c55e" targetCpa={targetCpa} sortKey="profit" />
               </div>
             )}
             <div className="mb-lg">
-              <ActionSection title="Theo Dõi — Chưa Cần Hành Động" actions={actionWatch} color="#f97316" targetCpa={targetCpa} />
+              <ActionSection title="Theo Dõi — Chưa Cần Hành Động" actions={actionWatch} color="#f97316" targetCpa={targetCpa} sortKey="spend" defaultOpen={false} />
             </div>
 
             {/* Section 4: CPA Sensitivity + Recommendations */}
