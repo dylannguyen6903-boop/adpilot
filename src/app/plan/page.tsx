@@ -39,6 +39,9 @@ interface ActionItem {
   ic7d?: number;
   roas7d?: number | null;
   daysRunning?: number;
+  frequency7d?: number;
+  cpm7d?: number;
+  ctrTrend?: string;
 }
 
 interface PlanResponse {
@@ -281,6 +284,22 @@ function CampaignCard({ a, targetCpa }: { a: ActionItem; targetCpa: number }) {
       {a.diagnosis && (
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 'var(--space-xs)', lineHeight: 1.4 }}>
           💡 {a.diagnosis}
+        </div>
+      )}
+
+      {/* Creative Fatigue Badge */}
+      {((a.frequency7d && a.frequency7d > 2.5) || a.ctrTrend === 'DOWN') && (
+        <div style={{
+          fontSize: 11, padding: '4px 8px', borderRadius: 4, marginBottom: 'var(--space-xs)',
+          background: (a.frequency7d ?? 0) > 3.5 ? '#ef444420' : '#f9731620',
+          color: (a.frequency7d ?? 0) > 3.5 ? '#f87171' : '#fb923c',
+          display: 'flex', gap: 8, alignItems: 'center',
+        }}>
+          🎨 {a.frequency7d ? `Freq: ${a.frequency7d.toFixed(1)}` : ''}
+          {a.ctrTrend === 'DOWN' && ' · CTR ↓'}
+          <span style={{ marginLeft: 'auto', fontWeight: 600 }}>
+            {(a.frequency7d ?? 0) > 3.5 ? 'Thay creative ngay!' : 'Theo dõi creative'}
+          </span>
         </div>
       )}
 

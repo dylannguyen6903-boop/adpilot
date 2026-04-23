@@ -38,6 +38,10 @@ export interface ActionItem {
   ic7d?: number;                 // Initiate checkout events over 7 days
   roas7d?: number | null;        // 7-day ROAS
   daysRunning?: number;          // Number of days with spend
+  // V3.2 — Creative health fields
+  frequency7d?: number;           // Average frequency over 7 days
+  cpm7d?: number;                 // Average CPM over 7 days
+  ctrTrend?: string;              // 'UP' | 'DOWN' | 'STABLE'
 }
 
 /** Full action plan for a day */

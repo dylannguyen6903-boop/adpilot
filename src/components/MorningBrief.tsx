@@ -30,6 +30,10 @@ interface PlanAction {
   currentCpa: number | null;
   profitPerOrder?: number | null;
   campaignName: string;
+  frequency7d?: number;
+  cpm7d?: number;
+  ctrTrend?: string;
+  ctr7d?: number;
 }
 
 interface Scenario {
@@ -371,6 +375,44 @@ export default function MorningBrief({ planActions = [] }: { planActions?: PlanA
           </div>
         </div>
       )}
+
+      {/* Creative Fatigue Alerts */}
+      {(() => {
+        const fatigued = planActions.filter(a =>
+          (a.frequency7d && a.frequency7d > 2.5) || (a.ctrTrend === 'DOWN' && (a.spend7d ?? 0) > 30)
+        ).sort((a, b) => (b.frequency7d ?? 0) - (a.frequency7d ?? 0)).slice(0, 5);
+        if (fatigued.length === 0) return null;
+        return (
+          <div style={{ marginBottom: 'var(--space-md)' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>🎨 Creative Fatigue ({fatigued.length} camp)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {fatigued.map((a, i) => {
+                const isCritical = (a.frequency7d ?? 0) > 3.5;
+                return (
+                  <div key={i} style={{
+                    padding: '8px 12px', borderRadius: 6, fontSize: 12,
+                    background: isCritical ? '#ef444415' : '#f9731615',
+                    borderLeft: `3px solid ${isCritical ? '#ef4444' : '#f97316'}`,
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                      {isCritical ? '🔴' : '⚠️'} {a.campaignName}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      {a.frequency7d && <span>Freq: <strong style={{ color: isCritical ? '#f87171' : '#fb923c' }}>{a.frequency7d.toFixed(1)}</strong></span>}
+                      {a.ctrTrend === 'DOWN' && <span>CTR: <strong style={{ color: '#f87171' }}>↓ giảm</strong></span>}
+                      {a.ctr7d && <span>CTR 7d: {(a.ctr7d).toFixed(1)}%</span>}
+                      {a.spend7d && <span>Chi 7d: ${a.spend7d.toFixed(0)}</span>}
+                      <span style={{ color: isCritical ? '#f87171' : '#fb923c', fontWeight: 600 }}>
+                        {isCritical ? '→ Thay creative ngay' : '→ Theo dõi sát'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Top 3 TODO */}
       {todos.length > 0 && (

@@ -43,10 +43,8 @@ export async function GET() {
       .limit(1)
       .single();
 
-    const targetCpa = profile?.target_cpa ?? 42;
     const cogsRate = profile?.avg_cogs_rate ?? 0.32;
     const monthlyTarget = profile?.monthly_profit_target ?? 15000;
-    const aov = profile?.aov ?? 86;
 
     // 3. Parallel queries
     const [snapshotsRes, financialsRes, mtdFinancialsRes] = await Promise.all([
@@ -134,15 +132,7 @@ export async function GET() {
     const yesterday = daily.length >= 1 ? daily[daily.length - 1] : null;
     const dayBefore = daily.length >= 2 ? daily[daily.length - 2] : null;
 
-    // 6. MTD calculations
-    const mtdSpend = (() => {
-      // Need MTD spend from snapshots
-      const mtdSnaps = snapshots.filter(s => s.snapshot_date >= monthStart);
-      // But we also need older MTD data not in 7-day window
-      return 0; // Will calculate below
-    })();
-
-    // Full MTD query for spend
+    // 6. MTD — full query for spend (may extend beyond 7-day window)
     const { data: mtdSnapshots } = await supabaseAdmin
       .from('campaign_snapshots')
       .select('spend, conversions')
@@ -173,155 +163,27 @@ export async function GET() {
     const gap = monthlyTarget - projectedMonthEnd;
     const dailyNeeded = daysRemaining > 0 ? (monthlyTarget - mtdProfit) / daysRemaining : 0;
 
-    // 8. Scenarios (pure math)
-    // Get plan actions for scenario calculations
-    const killCamps = new Map<string, { budget: number; spend7d: number; name: string }>();
-    const scaleCamps: Array<{ orders7d: number; profitPerOrder: number; budget: number; name: string }> = [];
-
-    // Aggregate per-campaign 7d data
-    const campAgg = new Map<string, {
-      spend7d: number; orders7d: number; revenue7d: number;
-      budget: number; name: string;
-    }>();
-
-    for (const s of snapshots) {
-      const existing = campAgg.get(s.campaign_id);
-      if (existing) {
-        existing.spend7d += s.spend || 0;
-        existing.orders7d += s.conversions || 0;
-        existing.revenue7d += s.revenue_fb || 0;
-        existing.budget = s.daily_budget || existing.budget;
-      } else {
-        campAgg.set(s.campaign_id, {
-          spend7d: s.spend || 0,
-          orders7d: s.conversions || 0,
-          revenue7d: s.revenue_fb || 0,
-          budget: s.daily_budget || 0,
-          name: s.campaign_name,
-        });
-      }
-    }
-
-    // Identify kill candidates: spend7d > $50 AND (no orders OR CPA > targetCpa * 2)
-    let killSavings = 0;
-    let killSpend7d = 0;
-    let killCount = 0;
-    for (const [, c] of campAgg) {
-      const cpa = c.orders7d > 0 ? c.spend7d / c.orders7d : Infinity;
-      const profitPerOrder = c.orders7d > 0 ? (aov * (1 - cogsRate)) - cpa : -Infinity;
-      if (c.spend7d > 50 && (c.orders7d === 0 || profitPerOrder < -10)) {
-        killSavings += c.budget;
-        killSpend7d += c.spend7d;
-        killCount++;
-      }
-    }
-
-    // Identify scale candidates: CPA < targetCpa AND profitPerOrder > 0
-    let scaleExtraProfit = 0;
-    let scaleCount = 0;
-    for (const [, c] of campAgg) {
-      if (c.orders7d >= 2) {
-        const cpa = c.spend7d / c.orders7d;
-        const profitPerOrder = (aov * (1 - cogsRate)) - cpa;
-        if (cpa < targetCpa && profitPerOrder > 0) {
-          // Scale +20% budget → estimate +14% more orders (0.7x conservative)
-          const dailyOrders = c.orders7d / 7;
-          const extraOrders = dailyOrders * 0.14;
-          scaleExtraProfit += extraOrders * profitPerOrder;
-          scaleCount++;
-        }
-      }
-    }
-
-    // CPA optimization scenario
-    const total7dSpend = daily.reduce((s, d) => s + d.spend, 0);
-    const total7dOrders = daily.reduce((s, d) => s + d.orders, 0);
-    const currentAvgCpa = total7dOrders > 0 ? total7dSpend / total7dOrders : 0;
-    const cpaSavingsPerDay = total7dOrders > 0
-      ? ((currentAvgCpa - targetCpa) * (total7dOrders / 7))
-      : 0;
-
-    const scenarios = [];
-
-    if (killCount > 0) {
-      const projected = mtdProfit + (avgDailyProfit7d + killSavings) * daysRemaining;
-      scenarios.push({
-        id: 'cut-losses',
-        title: `Cắt lỗ: Tắt ${killCount} camp không hiệu quả`,
-        description: `Tiết kiệm $${killSavings.toFixed(0)}/ngày (đã chi $${killSpend7d.toFixed(0)} trong 7 ngày mà lỗ)`,
-        impact: Math.round(projected),
-        savings: Math.round(killSavings),
-        effort: 'low' as const,
-      });
-    }
-
-    if (scaleCount > 0) {
-      const projected = mtdProfit + (avgDailyProfit7d + scaleExtraProfit) * daysRemaining;
-      scenarios.push({
-        id: 'scale-winners',
-        title: `Scale: Tăng budget ${scaleCount} camp tốt nhất +20%`,
-        description: `Ước tính thêm ~$${scaleExtraProfit.toFixed(0)}/ngày profit (bảo thủ 0.7x)`,
-        impact: Math.round(projected),
-        savings: Math.round(scaleExtraProfit),
-        effort: 'medium' as const,
-      });
-    }
-
-    if (currentAvgCpa > targetCpa && cpaSavingsPerDay > 0) {
-      const projected = mtdProfit + (avgDailyProfit7d + cpaSavingsPerDay) * daysRemaining;
-      scenarios.push({
-        id: 'optimize-cpa',
-        title: `Tối ưu CPA: $${currentAvgCpa.toFixed(0)} → $${targetCpa}`,
-        description: `Nếu đạt target CPA, tiết kiệm ~$${cpaSavingsPerDay.toFixed(0)}/ngày chi phí ads`,
-        impact: Math.round(projected),
-        savings: Math.round(cpaSavingsPerDay),
-        effort: 'high' as const,
-      });
-    }
-
-    // 9. Alerts (max 3, sorted by severity)
+    // 8. Alerts (max 3, sorted by severity)
+    // Scenarios & TODOs are now calculated client-side from Plan engine actions
     const alerts: Array<{ type: 'danger' | 'warning' | 'info'; message: string; priority: number }> = [];
 
     if (yesterday && yesterday.profit < 0) {
       alerts.push({ type: 'danger', message: `Hôm qua LỖ $${Math.abs(yesterday.profit).toFixed(0)}`, priority: 1 });
     }
-
-    if (!projectedMonthEnd || projectedMonthEnd < monthlyTarget) {
-      alerts.push({
-        type: 'danger',
-        message: `Dự báo cuối tháng: $${projectedMonthEnd.toFixed(0)} — thiếu $${gap.toFixed(0)} so với target`,
-        priority: 2,
-      });
+    if (projectedMonthEnd < monthlyTarget) {
+      alerts.push({ type: 'danger', message: `Dự báo cuối tháng: $${projectedMonthEnd.toFixed(0)} — thiếu $${gap.toFixed(0)} so với target`, priority: 2 });
     }
-
     if (yesterday && yesterday.margin < 0.17 && yesterday.margin > 0) {
-      alerts.push({
-        type: 'warning',
-        message: `Margin hôm qua ${(yesterday.margin * 100).toFixed(1)}% — dưới target 17%`,
-        priority: 3,
-      });
+      alerts.push({ type: 'warning', message: `Margin hôm qua ${(yesterday.margin * 100).toFixed(1)}% — dưới target 17%`, priority: 3 });
     }
-
     if (yesterday && dayBefore && yesterday.cpa && dayBefore.cpa) {
       const cpaChange = (yesterday.cpa - dayBefore.cpa) / dayBefore.cpa;
       if (cpaChange > 0.3) {
-        alerts.push({
-          type: 'warning',
-          message: `CPA hôm qua $${yesterday.cpa.toFixed(0)} — tăng ${(cpaChange * 100).toFixed(0)}% vs hôm kia`,
-          priority: 4,
-        });
+        alerts.push({ type: 'warning', message: `CPA hôm qua $${yesterday.cpa.toFixed(0)} — tăng ${(cpaChange * 100).toFixed(0)}% vs hôm kia`, priority: 4 });
       }
     }
-
-    // Sort by priority, take top 3
     alerts.sort((a, b) => a.priority - b.priority);
     const topAlerts = alerts.slice(0, 3).map(({ type, message }) => ({ type, message }));
-
-    // 10. Top 3 things to do (auto-generated)
-    const todos: string[] = [];
-    if (killCount > 0) todos.push(`Tắt ${killCount} camp lỗ → tiết kiệm $${killSavings.toFixed(0)}/ngày`);
-    if (scaleCount > 0) todos.push(`Tăng budget ${scaleCount} camp tốt → thêm ~$${scaleExtraProfit.toFixed(0)}/ngày`);
-    if (currentAvgCpa > targetCpa) todos.push(`CPA trung bình $${currentAvgCpa.toFixed(0)} > target $${targetCpa} — cần tối ưu`);
 
     return NextResponse.json({
       success: true,
@@ -346,9 +208,7 @@ export async function GET() {
         onTrack: projectedMonthEnd >= monthlyTarget,
         dailyNeeded: Math.round(dailyNeeded),
       },
-      scenarios,
       alerts: topAlerts,
-      todos,
     });
   } catch (error) {
     return NextResponse.json(

@@ -489,6 +489,10 @@ export async function generateActionPlanV2(
       ic7d: camp.ic7d,
       roas7d: camp.roas_fb,
       daysRunning: camp.daysRunning,
+      // V3.2 — Creative health
+      frequency7d: camp.avgFrequency7d,
+      cpm7d: camp.cpm,
+      ctrTrend: camp.ctrTrend > 5 ? 'UP' : camp.ctrTrend < -5 ? 'DOWN' : 'STABLE',
     });
   }
 
