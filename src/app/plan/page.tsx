@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Header, PageContainer } from '@/components/layout';
 import { useApiData } from '@/hooks/useApi';
 import { formatCurrency, formatPercent } from '@/lib/utils';
+import MorningBrief from '@/components/MorningBrief';
 import type { GoalBreakdown, GoalRecommendation, CpaSensitivity } from '@/engine/goalEngine';
 import type { CampaignEvaluation } from '@/engine/evaluator';
 
@@ -553,11 +554,11 @@ export default function ActionPlanPage() {
           <div className="loading-page"><div className="loading-spinner lg" /><span>Đang tải kế hoạch...</span></div>
         ) : (
           <>
+            {/* Morning Brief — 30 second overview */}
+            <MorningBrief />
+
             {/* Section 1: Goal Progress */}
             {goal && <GoalProgressBar goal={goal} />}
-
-            {/* Account Overview - data-driven Vietnamese */}
-            {actions.length > 0 && <AccountOverview actions={actions} margin={data?.margin ?? null} />}
 
             {/* Section 2: Daily KPIs */}
             {goal && <DailyKPIs goal={goal} margin={data?.margin ?? null} />}
