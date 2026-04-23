@@ -21,6 +21,17 @@ interface DailyMetric {
   margin: number;
 }
 
+interface PlanAction {
+  type: string;
+  oldBudget: number | null;
+  newBudget: number | null;
+  spend7d?: number;
+  conversions7d?: number;
+  currentCpa: number | null;
+  profitPerOrder?: number | null;
+  campaignName: string;
+}
+
 interface Scenario {
   id: string;
   title: string;
@@ -53,9 +64,7 @@ interface BriefData {
     onTrack: boolean;
     dailyNeeded: number;
   };
-  scenarios: Scenario[];
   alerts: Array<{ type: 'danger' | 'warning' | 'info'; message: string }>;
-  todos: string[];
 }
 
 // ─────────────────────────────────────────
@@ -217,7 +226,7 @@ function ScenarioCard({ s, target }: { s: Scenario; target: number }) {
 // Main Morning Brief Component
 // ─────────────────────────────────────────
 
-export default function MorningBrief() {
+export default function MorningBrief({ planActions = [] }: { planActions?: PlanAction[] }) {
   const { data, loading } = useApiData<BriefData>('/api/engine/brief');
   const [showCharts, setShowCharts] = useState(true);
 
@@ -231,7 +240,45 @@ export default function MorningBrief() {
 
   if (!data?.success) return null;
 
-  const { yesterday, dayBefore, daily, mtd, forecast, scenarios, alerts, todos } = data;
+  const { yesterday, dayBefore, daily, mtd, forecast, alerts } = data;
+
+  // Build scenarios from ACTUAL plan engine actions
+  const kills = planActions.filter(a => a.type === 'KILL');
+  const scales = planActions.filter(a => a.type === 'SCALE' || a.type === 'LAUNCH');
+  const killSavings = kills.reduce((s, a) => s + (a.oldBudget ?? 0), 0);
+  const killSpend7d = kills.reduce((s, a) => s + (a.spend7d ?? 0), 0);
+  const scaleExtra = scales.reduce((s, a) => {
+    const dailyOrders = (a.conversions7d ?? 0) / 7;
+    const profit = a.profitPerOrder ?? 0;
+    return s + (dailyOrders * 0.14 * profit); // 20% budget → 14% more orders (0.7x)
+  }, 0);
+  const total7dSpend = planActions.reduce((s, a) => s + (a.spend7d ?? 0), 0);
+  const total7dOrders = planActions.reduce((s, a) => s + (a.conversions7d ?? 0), 0);
+  const currentAvgCpa = total7dOrders > 0 ? total7dSpend / total7dOrders : 0;
+  const targetCpa = 42;
+  const cpaSavingsPerDay = total7dOrders > 0 ? ((currentAvgCpa - targetCpa) * (total7dOrders / 7)) : 0;
+
+  const scenarios: Scenario[] = [];
+  const daysRem = forecast.dailyNeeded > 0 ? Math.round((forecast.target - mtd.profit) / forecast.dailyNeeded) : 0;
+
+  if (kills.length > 0) {
+    const proj = mtd.profit + (forecast.avgDailyProfit7d + killSavings) * daysRem;
+    scenarios.push({ id: 'cut', title: `Cắt lỗ: Tắt ${kills.length} camp không hiệu quả`, description: `Tiết kiệm $${killSavings.toFixed(0)}/ngày (đã chi $${killSpend7d.toFixed(0)} trong 7 ngày mà lỗ)`, impact: Math.round(proj), savings: Math.round(killSavings), effort: 'low' });
+  }
+  if (scales.length > 0 && scaleExtra > 0) {
+    const proj = mtd.profit + (forecast.avgDailyProfit7d + scaleExtra) * daysRem;
+    scenarios.push({ id: 'scale', title: `Scale: Tăng budget ${scales.length} camp tốt nhất +20%`, description: `Ước tính thêm ~$${scaleExtra.toFixed(0)}/ngày profit (bảo thủ 0.7x)`, impact: Math.round(proj), savings: Math.round(scaleExtra), effort: 'medium' });
+  }
+  if (currentAvgCpa > targetCpa && cpaSavingsPerDay > 0) {
+    const proj = mtd.profit + (forecast.avgDailyProfit7d + cpaSavingsPerDay) * daysRem;
+    scenarios.push({ id: 'cpa', title: `Tối ưu CPA: $${currentAvgCpa.toFixed(0)} → $${targetCpa}`, description: `Nếu đạt target CPA, tiết kiệm ~$${cpaSavingsPerDay.toFixed(0)}/ngày`, impact: Math.round(proj), savings: Math.round(cpaSavingsPerDay), effort: 'high' });
+  }
+
+  // TODOs from actual plan actions
+  const todos: string[] = [];
+  if (kills.length > 0) todos.push(`Tắt ${kills.length} camp lỗ → tiết kiệm $${killSavings.toFixed(0)}/ngày`);
+  if (scales.length > 0) todos.push(`Tăng budget ${scales.length} camp tốt → thêm ~$${scaleExtra.toFixed(0)}/ngày`);
+  if (currentAvgCpa > targetCpa) todos.push(`CPA trung bình $${currentAvgCpa.toFixed(0)} > target $${targetCpa} — cần tối ưu`);
   const progressPct = Math.min(100, (mtd.profit / forecast.target) * 100);
 
   return (

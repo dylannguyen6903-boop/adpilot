@@ -555,7 +555,7 @@ export default function ActionPlanPage() {
         ) : (
           <>
             {/* Morning Brief — 30 second overview */}
-            <MorningBrief />
+            <MorningBrief planActions={actions} />
 
             {/* Section 1: Goal Progress */}
             {goal && <GoalProgressBar goal={goal} />}
