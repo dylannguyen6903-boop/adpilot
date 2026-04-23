@@ -17,8 +17,30 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);
-    const date = searchParams.get('date') || getAdAccountToday();
+    let date = searchParams.get('date') || getAdAccountToday();
     const force = searchParams.get('force') === 'true';
+
+    // Smart fallback: if today has no data, use latest date with data
+    if (!searchParams.get('date')) {
+      const { count } = await supabaseAdmin
+        .from('campaign_snapshots')
+        .select('*', { count: 'exact', head: true })
+        .eq('snapshot_date', date)
+        .gt('spend', 0);
+
+      if (!count || count === 0) {
+        const { data: latestSnap } = await supabaseAdmin
+          .from('campaign_snapshots')
+          .select('snapshot_date')
+          .gt('spend', 0)
+          .order('snapshot_date', { ascending: false })
+          .limit(1)
+          .single();
+        if (latestSnap) {
+          date = latestSnap.snapshot_date;
+        }
+      }
+    }
 
     // Check if plan already exists (cache)
     if (!force) {
@@ -57,7 +79,28 @@ export async function POST(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);
-    const today = getAdAccountToday();
+    let today = getAdAccountToday();
+
+    // Smart fallback: if today has no data, use latest date
+    const { count } = await supabaseAdmin
+      .from('campaign_snapshots')
+      .select('*', { count: 'exact', head: true })
+      .eq('snapshot_date', today)
+      .gt('spend', 0);
+
+    if (!count || count === 0) {
+      const { data: latestSnap } = await supabaseAdmin
+        .from('campaign_snapshots')
+        .select('snapshot_date')
+        .gt('spend', 0)
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+        .single();
+      if (latestSnap) {
+        today = latestSnap.snapshot_date;
+      }
+    }
+
     return await generateAndReturnPlan(today, days);
   } catch (error) {
     return NextResponse.json(

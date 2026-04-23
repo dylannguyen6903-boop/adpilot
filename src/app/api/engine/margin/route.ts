@@ -7,12 +7,39 @@ import { getAdAccountToday } from '@/lib/timezone';
  * GET /api/engine/margin
  * Returns margin calculation, optionally aggregated over multiple days.
  * Query params: ?days=3&date=YYYY-MM-DD
+ * 
+ * Smart fallback: If today has no data (early morning / sync delay),
+ * automatically falls back to the most recent date with data.
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '1', 10);
-    const anchorDate = searchParams.get('date') || getAdAccountToday();
+    let anchorDate = searchParams.get('date') || getAdAccountToday();
+
+    // Smart fallback: check if anchorDate has any data
+    if (!searchParams.get('date')) {
+      const { count } = await supabaseAdmin
+        .from('campaign_snapshots')
+        .select('*', { count: 'exact', head: true })
+        .eq('snapshot_date', anchorDate)
+        .gt('spend', 0);
+
+      if (!count || count === 0) {
+        // No data for today — find the most recent date with data
+        const { data: latestSnap } = await supabaseAdmin
+          .from('campaign_snapshots')
+          .select('snapshot_date')
+          .gt('spend', 0)
+          .order('snapshot_date', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (latestSnap) {
+          anchorDate = latestSnap.snapshot_date;
+        }
+      }
+    }
 
     // Calculate date range
     const fromDate = new Date(
@@ -64,7 +91,7 @@ export async function GET(request: Request) {
     const marginConfig = {
       targetMarginMin: profile?.target_margin_min ?? 0.17,
       targetMarginMax: profile?.target_margin_max ?? 0.20,
-      avgCogsRate: profile?.avg_cogs_rate ?? 0.80,
+      avgCogsRate: profile?.avg_cogs_rate ?? 0.32,
     };
 
     const result = calculateDailyMargin(shopifyRevenue, totalAdSpend, marginConfig);

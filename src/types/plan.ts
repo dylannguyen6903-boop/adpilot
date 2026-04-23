@@ -29,6 +29,15 @@ export interface ActionItem {
   funnelHealth?: number;         // 0-100
   profitPerOrder?: number | null;
   diagnosis?: string;            // Metric combo pattern description
+  // V3.1 — additional metrics for detailed UI
+  spend7d?: number;              // Total spend over 7 days
+  conversions7d?: number;        // Total orders over 7 days
+  spendToday?: number;           // Today's spend
+  ctr7d?: number;                // Average CTR over 7 days
+  atc7d?: number;                // Add to cart events over 7 days
+  ic7d?: number;                 // Initiate checkout events over 7 days
+  roas7d?: number | null;        // 7-day ROAS
+  daysRunning?: number;          // Number of days with spend
 }
 
 /** Full action plan for a day */

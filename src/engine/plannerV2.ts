@@ -480,6 +480,15 @@ export async function generateActionPlanV2(
       funnelHealth: evaluation.funnelHealth,
       profitPerOrder: evaluation.profitPerOrder,
       diagnosis: evaluation.diagnosis,
+      // V3.1 — detailed metrics for UI
+      spend7d: camp.spend7d,
+      conversions7d: camp.conversions7d,
+      spendToday: camp.spend,
+      ctr7d: camp.avgCTR7d,
+      atc7d: camp.atc7d,
+      ic7d: camp.ic7d,
+      roas7d: camp.roas_fb,
+      daysRunning: camp.daysRunning,
     });
   }
 

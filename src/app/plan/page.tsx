@@ -25,12 +25,19 @@ interface ActionItem {
   aiReasoning: string | null;
   aiPrediction: string | null;
   aiConfidence: number | null;
-  // V3
   lifecycle?: string;
   campType?: string;
   funnelHealth?: number;
   profitPerOrder?: number | null;
   diagnosis?: string;
+  spend7d?: number;
+  conversions7d?: number;
+  spendToday?: number;
+  ctr7d?: number;
+  atc7d?: number;
+  ic7d?: number;
+  roas7d?: number | null;
+  daysRunning?: number;
 }
 
 interface PlanResponse {
@@ -169,139 +176,141 @@ function DailyKPIs({ goal, margin }: { goal: GoalBreakdown; margin: PlanResponse
   );
 }
 
-const LIFECYCLE_COLORS: Record<string, { bg: string; color: string }> = {
-  LEARNING: { bg: '#374151', color: '#9ca3af' },
-  EVALUATING: { bg: '#1e3a5f', color: '#60a5fa' },
-  PERFORMING: { bg: '#14532d', color: '#4ade80' },
-  SCALING: { bg: '#3b0764', color: '#c084fc' },
-  FATIGUED: { bg: '#7f1d1d', color: '#f87171' },
-};
-
-const CAMPTYPE_LABELS: Record<string, { icon: string; label: string }> = {
-  PROSPECTING: { icon: '🔵', label: 'TOF' },
-  RETARGETING: { icon: '🟠', label: 'BOF' },
-  MIXED: { icon: '⚪', label: 'Mix' },
+const LIFECYCLE_LABELS: Record<string, { bg: string; color: string; label: string }> = {
+  LEARNING: { bg: '#374151', color: '#9ca3af', label: 'Đang học' },
+  EVALUATING: { bg: '#1e3a5f', color: '#60a5fa', label: 'Đang đánh giá' },
+  PERFORMING: { bg: '#14532d', color: '#4ade80', label: 'Có lợi nhuận' },
+  SCALING: { bg: '#3b0764', color: '#c084fc', label: 'Nên tăng' },
+  FATIGUED: { bg: '#7f1d1d', color: '#f87171', label: 'Mệt mỏi' },
 };
 
 function LifecycleBadge({ phase }: { phase?: string }) {
   if (!phase) return null;
-  const cfg = LIFECYCLE_COLORS[phase] || LIFECYCLE_COLORS.EVALUATING;
+  const cfg = LIFECYCLE_LABELS[phase] || LIFECYCLE_LABELS.EVALUATING;
   return (
-    <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: cfg.bg, color: cfg.color, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
-      {phase}
+    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: cfg.bg, color: cfg.color, fontWeight: 600 }}>
+      {cfg.label}
     </span>
   );
 }
 
-function FunnelHealthBar({ score }: { score?: number }) {
-  if (score === undefined || score === null) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
-  const color = score >= 70 ? '#4ade80' : score >= 40 ? '#facc15' : '#f87171';
+const ACTION_LABELS: Record<string, { label: string; color: string; icon: string }> = {
+  KILL: { label: 'TẮT', color: '#ef4444', icon: '🔴' },
+  SCALE: { label: 'TĂNG', color: '#22c55e', icon: '🟢' },
+  WATCH: { label: 'THEO DÕI', color: '#f97316', icon: '🟠' },
+  REVERT: { label: 'GIẢM', color: '#f97316', icon: '⚠️' },
+  LAUNCH: { label: 'MỚI', color: '#6366f1', icon: '🔵' },
+};
+
+function CpaBar({ cpa, target }: { cpa: number | null; target: number }) {
+  if (!cpa) return <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Chưa có đơn</span>;
+  const ratio = cpa / target;
+  const color = ratio <= 1 ? '#4ade80' : ratio <= 1.3 ? '#facc15' : '#f87171';
+  const label = ratio <= 1 ? 'Tốt' : ratio <= 1.3 ? 'Cao' : 'Quá cao';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
-        <div style={{ width: `${score}%`, height: '100%', background: color, borderRadius: 3 }} />
-      </div>
-      <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color }}>{score}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color }}>${cpa.toFixed(0)}</span>
+      <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>/ ${target}</span>
+      <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: color + '22', color, fontWeight: 600 }}>{label}</span>
     </div>
   );
 }
 
-function ActionTable({ title, actions, type, color }: {
-  title: string;
-  actions: ActionItem[];
-  type: 'action' | 'watch';
-  color: string;
-}) {
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+function CampaignCard({ a, targetCpa }: { a: ActionItem; targetCpa: number }) {
+  const [open, setOpen] = useState(false);
+  const act = ACTION_LABELS[a.type] || ACTION_LABELS.WATCH;
+  const profitColor = (a.profitPerOrder ?? 0) > 0 ? '#4ade80' : (a.profitPerOrder ?? 0) < 0 ? '#f87171' : 'var(--text-muted)';
 
   return (
-    <div className="card" id={`table-${type}`}>
-      <div className="card-header">
-        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} />
-          {title}
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 400 }}>({actions.length})</span>
+    <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-primary)', padding: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
+      {/* Header: Action + Name + Phase */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-sm)' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: act.color, padding: '2px 8px', borderRadius: 4, background: act.color + '22' }}>{act.icon} {act.label}</span>
+            <LifecycleBadge phase={a.lifecycle} />
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{a.campaignName}</div>
+        </div>
+        {a.type === 'KILL' && a.oldBudget != null && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Tiết kiệm</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#4ade80' }}>${a.oldBudget}/ngày</div>
+          </div>
+        )}
+        {a.type === 'SCALE' && a.oldBudget != null && a.newBudget != null && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Budget</div>
+            <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+              <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>${a.oldBudget}</span>
+              <span style={{ color: 'var(--text-muted)', margin: '0 3px' }}>→</span>
+              <span style={{ color: '#4ade80', fontWeight: 700 }}>${a.newBudget}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Metrics row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)', padding: 'var(--space-sm)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)' }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Chi 7 ngày</div>
+          <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>${(a.spend7d ?? 0).toFixed(0)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Chi hôm nay</div>
+          <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>${(a.spendToday ?? 0).toFixed(0)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Đơn (7 ngày)</div>
+          <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{a.conversions7d ?? 0}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>CPA vs Target</div>
+          <CpaBar cpa={a.currentCpa} target={targetCpa} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Lời/đơn</div>
+          <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: profitColor }}>
+            {a.profitPerOrder != null ? `$${a.profitPerOrder.toFixed(0)}` : '—'}
+          </div>
         </div>
       </div>
+
+      {/* Diagnosis - always visible */}
+      {a.diagnosis && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 'var(--space-xs)', lineHeight: 1.4 }}>
+          💡 {a.diagnosis}
+        </div>
+      )}
+
+      {/* Expand for AI reasoning */}
+      {(a.aiReasoning || a.reason) && (
+        <button onClick={() => setOpen(!open)} style={{ fontSize: 11, color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+          {open ? '▼ Ẩn chi tiết' : '▶ Xem phân tích chi tiết'}
+        </button>
+      )}
+      {open && (
+        <div style={{ marginTop: 'var(--space-xs)', padding: 'var(--space-sm)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          {a.aiReasoning || a.reason}
+          {a.aiPrediction && <div style={{ marginTop: 4, color: 'var(--accent-primary)' }}>💡 {a.aiPrediction}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionSection({ title, actions, color, targetCpa }: { title: string; actions: ActionItem[]; color: string; targetCpa: number }) {
+  return (
+    <div className="card" style={{ padding: 'var(--space-md)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} />
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{title}</span>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>({actions.length})</span>
+      </div>
       {actions.length === 0 ? (
-        <div className="empty-state" style={{ padding: 'var(--space-lg)' }}>
-          <div className="empty-state-text">{type === 'action' ? 'Không có hành động cần thiết' : 'Không có camp cần theo dõi'}</div>
-        </div>
+        <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--text-muted)' }}>Không có camp nào</div>
       ) : (
-        <div className="data-table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: 55 }}>Loại</th>
-                <th>Campaign</th>
-                <th style={{ width: 65 }}>Phase</th>
-                <th style={{ width: 50 }}>Health</th>
-                <th style={{ width: 70 }}>Profit/Đơn</th>
-                <th style={{ width: 65 }}>CPA</th>
-                {type === 'action' && <th style={{ width: 130 }}>Budget</th>}
-                {type === 'watch' && <th style={{ width: 70 }}>Budget</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {actions.map((a) => {
-                const cfg = ACTION_STYLES[a.type] || ACTION_STYLES.WATCH;
-                const isExpanded = expandedRow === a.id;
-                const ct = CAMPTYPE_LABELS[a.campType || ''] || CAMPTYPE_LABELS.MIXED;
-                return (
-                  <>
-                    <tr
-                      key={a.id}
-                      onClick={() => setExpandedRow(isExpanded ? null : a.id)}
-                      style={{ cursor: 'pointer', opacity: a.isCompleted ? 0.5 : 1 }}
-                    >
-                      <td>
-                        <span style={{ color: cfg.color, fontWeight: 700, fontSize: 10, textTransform: 'uppercase' as const }}>
-                          {a.type}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 'var(--text-sm)' }}>
-                        <div style={{ fontWeight: 500 }}>{a.campaignName}</div>
-                        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
-                          <span style={{ fontSize: 9 }}>{ct.icon} {ct.label}</span>
-                        </div>
-                      </td>
-                      <td><LifecycleBadge phase={a.lifecycle} /></td>
-                      <td><FunnelHealthBar score={a.funnelHealth} /></td>
-                      <td className="cell-mono" style={{ fontSize: 11, color: (a.profitPerOrder ?? 0) > 0 ? '#4ade80' : (a.profitPerOrder ?? 0) < 0 ? '#f87171' : 'var(--text-muted)' }}>
-                        {a.profitPerOrder != null ? `$${a.profitPerOrder.toFixed(0)}` : '—'}
-                      </td>
-                      <td className="cell-mono" style={{ fontSize: 11 }}>{a.currentCpa ? `$${a.currentCpa.toFixed(0)}` : '—'}</td>
-                      {type === 'action' && (
-                        <td className="cell-mono" style={{ fontSize: 11 }}>
-                          {a.oldBudget !== null && a.newBudget !== null ? (
-                            <>
-                              <span style={{ textDecoration: a.type === 'KILL' ? 'line-through' : 'none', color: 'var(--text-muted)' }}>${a.oldBudget}</span>
-                              <span style={{ color: 'var(--text-muted)', margin: '0 2px' }}>→</span>
-                              <span style={{ color: cfg.color, fontWeight: 600 }}>${a.newBudget}</span>
-                            </>
-                          ) : '—'}
-                        </td>
-                      )}
-                      {type === 'watch' && (
-                        <td className="cell-mono" style={{ fontSize: 11 }}>{a.oldBudget !== null ? `$${a.oldBudget}` : '—'}</td>
-                      )}
-                    </tr>
-                    {isExpanded && (
-                      <tr key={`${a.id}-detail`}>
-                        <td colSpan={type === 'action' ? 8 : 7} style={{ background: 'var(--bg-tertiary)', padding: 'var(--space-sm) var(--space-md)' }}>
-                          {a.diagnosis && <div style={{ fontSize: 11, color: 'var(--accent-primary)', marginBottom: 4 }}>📊 {a.diagnosis}</div>}
-                          {a.aiReasoning && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{a.aiReasoning}</div>}
-                          {a.aiPrediction && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>💡 {a.aiPrediction}</div>}
-                          {!a.aiReasoning && a.reason && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{a.reason}</div>}
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        actions.map(a => <CampaignCard key={a.id} a={a} targetCpa={targetCpa} />)
       )}
     </div>
   );
@@ -422,18 +431,6 @@ function AIChatPanel({ planSummary }: { planSummary: string | null }) {
 }
 
 // ─────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────
-
-const ACTION_STYLES: Record<string, { color: string }> = {
-  KILL: { color: 'var(--color-kill)' },
-  REVERT: { color: 'var(--color-watch)' },
-  SCALE: { color: 'var(--color-winner)' },
-  LAUNCH: { color: 'var(--accent-primary)' },
-  WATCH: { color: 'var(--color-watch)' },
-};
-
-// ─────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────
 
@@ -449,9 +446,11 @@ export default function ActionPlanPage() {
   const plan = data?.plan;
   const goal = data?.goal ?? null;
   const actions = plan?.actions || [];
+  const targetCpa = 42; // from business config
 
-  // Split actions into two groups
-  const actionNow = actions.filter(a => a.type === 'KILL' || a.type === 'SCALE' || a.type === 'LAUNCH' || a.type === 'REVERT');
+  // Split actions into groups
+  const actionKill = actions.filter(a => a.type === 'KILL');
+  const actionScale = actions.filter(a => a.type === 'SCALE' || a.type === 'LAUNCH' || a.type === 'REVERT');
   const actionWatch = actions.filter(a => a.type === 'WATCH');
 
   const handleRegenerate = async () => {
@@ -488,9 +487,9 @@ export default function ActionPlanPage() {
             {plan?.aiSummary && (
               <div className="ai-summary-card mb-md" id="ai-summary">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)' }}>
-                  <span className="ai-badge ai-label">🧠 Account Health</span>
+                  <span className="ai-badge ai-label">🧠 Tổng quan Tài khoản</span>
                   {plan.aiUsed && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{plan.aiTokens} tokens</span>}
-                  {plan.learningCount !== undefined && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>⚫ {plan.learningCount} learning</span>}
+                  {plan.learningCount !== undefined && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>⚫ {plan.learningCount} camp đang học</span>}
                 </div>
                 <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: 'var(--leading-relaxed)', margin: 0 }}>{plan.aiSummary}</p>
               </div>
@@ -499,10 +498,19 @@ export default function ActionPlanPage() {
             {/* Section 2: Daily KPIs */}
             {goal && <DailyKPIs goal={goal} margin={data?.margin ?? null} />}
 
-            {/* Section 3: Dual Tables */}
-            <div className="grid-2 mb-lg">
-              <ActionTable title="Hành Động Ngay" actions={actionNow} type="action" color="var(--color-kill)" />
-              <ActionTable title="Theo Dõi" actions={actionWatch} type="watch" color="var(--color-watch)" />
+            {/* Section 3: Campaign Actions */}
+            {actionKill.length > 0 && (
+              <div className="mb-md">
+                <ActionSection title="Nên Tắt" actions={actionKill} color="#ef4444" targetCpa={targetCpa} />
+              </div>
+            )}
+            {actionScale.length > 0 && (
+              <div className="mb-md">
+                <ActionSection title="Nên Tăng Budget" actions={actionScale} color="#22c55e" targetCpa={targetCpa} />
+              </div>
+            )}
+            <div className="mb-lg">
+              <ActionSection title="Theo Dõi — Chưa Cần Hành Động" actions={actionWatch} color="#f97316" targetCpa={targetCpa} />
             </div>
 
             {/* Section 4: CPA Sensitivity + Recommendations */}

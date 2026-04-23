@@ -15,7 +15,29 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '3', 10);
     const status = searchParams.get('status');
-    const anchorDate = searchParams.get('date') || getAdAccountToday();
+    let anchorDate = searchParams.get('date') || getAdAccountToday();
+
+    // Smart fallback: if no explicit date and today has no data, use latest date
+    if (!searchParams.get('date')) {
+      const { count } = await supabaseAdmin
+        .from('campaign_snapshots')
+        .select('*', { count: 'exact', head: true })
+        .eq('snapshot_date', anchorDate)
+        .gt('spend', 0);
+
+      if (!count || count === 0) {
+        const { data: latestSnap } = await supabaseAdmin
+          .from('campaign_snapshots')
+          .select('snapshot_date')
+          .gt('spend', 0)
+          .order('snapshot_date', { ascending: false })
+          .limit(1)
+          .single();
+        if (latestSnap) {
+          anchorDate = latestSnap.snapshot_date;
+        }
+      }
+    }
 
     // Calculate date range
     const fromDate = new Date(
