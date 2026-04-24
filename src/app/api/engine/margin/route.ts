@@ -16,25 +16,33 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '1', 10);
+    const adAccountId = searchParams.get('ad_account_id');
     let anchorDate = searchParams.get('date') || getAdAccountToday();
 
     // Smart fallback: check if anchorDate has any data
     if (!searchParams.get('date')) {
-      const { count } = await supabaseAdmin
+      let countQuery = supabaseAdmin
         .from('campaign_snapshots')
         .select('*', { count: 'exact', head: true })
         .eq('snapshot_date', anchorDate)
         .gt('spend', 0);
+      
+      if (adAccountId) countQuery = countQuery.eq('ad_account_id', adAccountId);
+      
+      const { count } = await countQuery;
 
       if (!count || count === 0) {
         // No data for today — find the most recent date with data
-        const { data: latestSnap } = await supabaseAdmin
+        let latestQuery = supabaseAdmin
           .from('campaign_snapshots')
           .select('snapshot_date')
           .gt('spend', 0)
           .order('snapshot_date', { ascending: false })
-          .limit(1)
-          .single();
+          .limit(1);
+          
+        if (adAccountId) latestQuery = latestQuery.eq('ad_account_id', adAccountId);
+        
+        const { data: latestSnap } = await latestQuery.single();
 
         if (latestSnap) {
           anchorDate = latestSnap.snapshot_date;
@@ -70,13 +78,17 @@ export async function GET(request: Request) {
 
     // Get total ad spend from campaign snapshots in range
     // IMPORTANT: Supabase defaults to 1000 rows max. We must raise the limit.
-    const { data: snapshots } = await supabaseAdmin
+    let spendQuery = supabaseAdmin
       .from('campaign_snapshots')
       .select('spend')
       .gte('snapshot_date', fromDate)
       .lte('snapshot_date', anchorDate)
       .gt('spend', 0)
       .limit(10000);
+      
+    if (adAccountId) spendQuery = spendQuery.eq('ad_account_id', adAccountId);
+
+    const { data: snapshots } = await spendQuery;
 
     const totalAdSpend = snapshots
       ? snapshots.reduce((sum: number, s: { spend: number }) => sum + (s.spend || 0), 0)

@@ -14,13 +14,20 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const totalDailyBudget = body.totalDailyBudget || 180;
+    const adAccountId = body.ad_account_id;
     const today = getAdAccountToday();
 
     // Get campaign data
-    const { data: snapshots } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('campaign_snapshots')
       .select('*')
       .eq('snapshot_date', today);
+      
+    if (adAccountId) {
+      query = query.eq('ad_account_id', adAccountId);
+    }
+    
+    const { data: snapshots } = await query;
 
     if (!snapshots || snapshots.length === 0) {
       return NextResponse.json({ error: 'No campaign data for today.' }, { status: 400 });

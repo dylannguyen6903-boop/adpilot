@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '3', 10);
     const status = searchParams.get('status');
+    const adAccountId = searchParams.get('ad_account_id');
     let anchorDate = searchParams.get('date') || getAdAccountToday();
 
     // Smart fallback: if no explicit date and today has no data, use latest date
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch raw snapshots in range
     // IMPORTANT: Avoid Supabase 1000-row limit for large accounts
-    const query = supabaseAdmin
+    let query = supabaseAdmin
       .from('campaign_snapshots')
       .select('*')
       .gte('snapshot_date', fromDate)
@@ -54,6 +55,10 @@ export async function GET(request: NextRequest) {
       .gt('spend', 0) // only fetch campaigns with spend
       .order('spend', { ascending: false })
       .limit(10000);
+
+    if (adAccountId) {
+      query = query.eq('ad_account_id', adAccountId);
+    }
 
     const { data: rawSnapshots, error } = await query;
 
@@ -100,6 +105,7 @@ export async function GET(request: NextRequest) {
       snapshot_date: string;         // latest date
       campaign_created_time: string | null;
       days_with_data: number;
+      ad_account_id?: string;
     }>();
 
     for (const snap of rawSnapshots) {
@@ -123,6 +129,7 @@ export async function GET(request: NextRequest) {
           existing.ltv_adjusted_cpa = snap.ltv_adjusted_cpa;
           existing.margin_contribution = snap.margin_contribution;
           existing.snapshot_date = snap.snapshot_date;
+          existing.ad_account_id = snap.ad_account_id;
         }
       } else {
         campMap.set(snap.campaign_id, {
@@ -149,6 +156,7 @@ export async function GET(request: NextRequest) {
           snapshot_date: snap.snapshot_date,
           campaign_created_time: snap.campaign_created_time || null,
           days_with_data: 1,
+          ad_account_id: snap.ad_account_id,
         });
       }
     }

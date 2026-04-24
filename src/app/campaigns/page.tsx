@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Header, PageContainer } from '@/components/layout';
 import TimeframeSelector from '@/components/shared/TimeframeSelector';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { useApiData } from '@/hooks/useApi';
+import { useApiData, useAdAccounts } from '@/hooks/useApi';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import type { CampaignStatus } from '@/types/campaign';
 
@@ -50,11 +50,14 @@ type SortKey = 'spend' | 'conversions' | 'cpa' | 'ctr' | 'performance_score';
 
 export default function CampaignsPage() {
   const [days, setDays] = useState(1);
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | 'ALL'>('ALL');
   const [sortKey, setSortKey] = useState<SortKey>('spend');
   const [sortAsc, setSortAsc] = useState(false);
 
-  const { data, loading } = useApiData<CampaignsResponse>(`/api/facebook/campaigns?days=${days}`);
+  const { accounts } = useAdAccounts();
+  const qsAccount = selectedAccount ? `&ad_account_id=${selectedAccount}` : '';
+  const { data, loading } = useApiData<CampaignsResponse>(`/api/facebook/campaigns?days=${days}${qsAccount}`);
 
   const campaigns = data?.campaigns || [];
   const timeframeLabel = days === 1 ? 'Hôm nay' : `${days} ngày qua`;
@@ -88,6 +91,21 @@ export default function CampaignsPage() {
   return (
     <>
       <Header title="Chiến dịch" subtitle={`${campaigns.length} chiến dịch — ${timeframeLabel}`}>
+        {accounts && accounts.length > 0 && (
+          <select 
+            className="select" 
+            value={selectedAccount} 
+            onChange={e => setSelectedAccount(e.target.value)}
+            style={{ width: 'auto', minWidth: '150px' }}
+          >
+            <option value="">Tất cả tài khoản</option>
+            {accounts.map(acc => (
+              <option key={acc.adAccountId} value={acc.adAccountId}>
+                {acc.name || acc.adAccountId}
+              </option>
+            ))}
+          </select>
+        )}
         <TimeframeSelector value={days} onChange={setDays} />
       </Header>
       <PageContainer>

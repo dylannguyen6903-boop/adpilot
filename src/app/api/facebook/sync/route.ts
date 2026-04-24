@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     for (const config of accountsToSync) {
       try {
         const campaigns = await fetchCampaigns(config);
-        allCampaigns.push(...campaigns);
+        allCampaigns.push(...campaigns.map(c => ({ ...c, ad_account_id: config.adAccountId })));
 
         const insights = await fetchCampaignInsights(fromDate, today, config);
         allInsights.push(...insights);
@@ -166,6 +166,7 @@ export async function POST(request: NextRequest) {
           fb_status: campaign.status || 'ACTIVE',
           effective_status: campaign.status || 'ACTIVE',
           campaign_created_time: campaign.created_time || null,
+          ad_account_id: campaign.ad_account_id,
         });
         continue;
       }
@@ -203,6 +204,7 @@ export async function POST(request: NextRequest) {
           fb_status: campaign.status || 'ACTIVE',
           effective_status: campaign.status || 'ACTIVE',
           campaign_created_time: campaign.created_time || null,
+          ad_account_id: campaign.ad_account_id,
         });
       }
     }

@@ -43,6 +43,7 @@ export interface FBCampaign {
   lifetime_budget?: string;
   created_time: string;
   updated_time: string;
+  ad_account_id?: string;
 }
 
 export interface FBInsightAction {

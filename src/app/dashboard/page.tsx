@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Header, PageContainer } from '@/components/layout';
 import TimeframeSelector from '@/components/shared/TimeframeSelector';
-import { useApiData } from '@/hooks/useApi';
+import { useApiData, useAdAccounts } from '@/hooks/useApi';
 import { formatCurrency, formatPercent, formatRoas, formatNumber } from '@/lib/utils';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -70,12 +70,16 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DashboardPage() {
   const [days, setDays] = useState(1);
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [today] = useState(() => new Date().toISOString().split('T')[0]);
   const [fromDate] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
 
-  const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}`);
-  const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}`);
-  const { data: insightsData, error: _insightsError } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}`);
+  const { accounts } = useAdAccounts();
+
+  const qsAccount = selectedAccount ? `&ad_account_id=${selectedAccount}` : '';
+  const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}${qsAccount}`);
+  const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}${qsAccount}`);
+  const { data: insightsData, error: _insightsError } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}${qsAccount}`);
 
   // Check for critical API failures
   const coreErrors = [marginError, campaignsError].filter(Boolean);
@@ -142,6 +146,21 @@ export default function DashboardPage() {
   return (
     <>
       <Header title="Tổng quan" subtitle={`Báo cáo ${timeframeLabel} — hiệu suất nhanh`}>
+        {accounts && accounts.length > 0 && (
+          <select 
+            className="select" 
+            value={selectedAccount} 
+            onChange={e => setSelectedAccount(e.target.value)}
+            style={{ width: 'auto', minWidth: '150px' }}
+          >
+            <option value="">Tất cả tài khoản</option>
+            {accounts.map(acc => (
+              <option key={acc.adAccountId} value={acc.adAccountId}>
+                {acc.name || acc.adAccountId}
+              </option>
+            ))}
+          </select>
+        )}
         <TimeframeSelector value={days} onChange={setDays} />
       </Header>
       <PageContainer>

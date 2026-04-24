@@ -92,5 +92,14 @@ export function useApiAction<TResponse, TBody = unknown>(url: string) {
   return { execute, loading, error };
 }
 
+/**
+ * Hook to fetch configured Facebook ad accounts for multi-account filtering
+ */
+export function useAdAccounts() {
+  const { data, loading, error } = useApiData<{ connections: { facebook: { accounts: { id: string; name?: string; adAccountId: string }[] } } }>('/api/settings/connections');
+  const accounts = data?.connections?.facebook?.accounts || [];
+  return { accounts, loading, error };
+}
+
 /** Export for use in direct fetch() calls across the app */
 export { apiHeaders };

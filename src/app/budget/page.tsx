@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Header, PageContainer } from '@/components/layout';
-import { useApiAction } from '@/hooks/useApi';
+import { useApiAction, useAdAccounts } from '@/hooks/useApi';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -53,12 +53,16 @@ const tooltipStyle = {
 
 export default function BudgetAllocatorPage() {
   const [budget, setBudget] = useState(180);
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [result, setResult] = useState<BudgetSimulation | null>(null);
 
-  const { execute, loading } = useApiAction<AllocateResponse, { totalDailyBudget: number }>('/api/budget/allocate');
+  const { accounts } = useAdAccounts();
+  const { execute, loading } = useApiAction<AllocateResponse, { totalDailyBudget: number; ad_account_id?: string }>('/api/budget/allocate');
 
   const handleAllocate = async () => {
-    const res = await execute({ totalDailyBudget: budget });
+    const payload: { totalDailyBudget: number; ad_account_id?: string } = { totalDailyBudget: budget };
+    if (selectedAccount) payload.ad_account_id = selectedAccount;
+    const res = await execute(payload);
     if (res?.allocation) setResult(res.allocation);
   };
 
@@ -86,7 +90,23 @@ export default function BudgetAllocatorPage() {
 
   return (
     <>
-      <Header title="Phân bổ ngân sách" subtitle="Tối ưu hóa phân bổ chi tiêu quảng cáo hàng ngày" />
+      <Header title="Phân bổ ngân sách" subtitle="Tối ưu hóa phân bổ chi tiêu quảng cáo hàng ngày">
+        {accounts && accounts.length > 0 && (
+          <select 
+            className="select" 
+            value={selectedAccount} 
+            onChange={e => setSelectedAccount(e.target.value)}
+            style={{ width: 'auto', minWidth: '150px' }}
+          >
+            <option value="">Tất cả tài khoản</option>
+            {accounts.map(acc => (
+              <option key={acc.adAccountId} value={acc.adAccountId}>
+                {acc.name || acc.adAccountId}
+              </option>
+            ))}
+          </select>
+        )}
+      </Header>
       <PageContainer>
         {/* Budget Input */}
         <div className="card mb-lg">
