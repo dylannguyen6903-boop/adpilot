@@ -41,6 +41,7 @@ export interface CampaignData {
   campaignId: string;
   campaignName: string;
   fbStatus: string;
+  adAccountId: string;
 
   // Today's metrics
   spend: number;
@@ -180,6 +181,7 @@ function buildEvalData(camp: CampaignData): EvalCampaignData {
     campaignId: camp.campaignId,
     campaignName: camp.campaignName,
     fbStatus: camp.fbStatus,
+    adAccountId: camp.adAccountId,
     spend: camp.spend,
     impressions: camp.impressions,
     clicks: camp.clicks,
@@ -461,6 +463,7 @@ export async function generateActionPlanV2(
       type,
       campaignId: camp.campaignId,
       campaignName: camp.campaignName,
+      adAccountId: camp.adAccountId,
       description,
       reason: reasoning,
       oldBudget: camp.dailyBudget,

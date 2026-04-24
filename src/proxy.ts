@@ -17,7 +17,7 @@ const PUBLIC_PATHS = [
   '/api/cron/sync',  // Has its own CRON_SECRET auth
 ];
 
-export function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only protect /api/* routes

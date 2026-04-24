@@ -11,6 +11,7 @@ export interface ActionItem {
   type: ActionType;
   campaignId: string;
   campaignName: string;
+  adAccountId?: string;
   description: string;            // Short summary, e.g. "Tăng budget từ $10 → $12/day"
   reason: string;                 // Why this action, e.g. "CPA $33.76 < target, stable 7 ngày"
   oldBudget: number | null;

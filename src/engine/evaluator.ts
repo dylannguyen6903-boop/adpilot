@@ -24,6 +24,7 @@ export interface EvalCampaignData {
   campaignId: string;
   campaignName: string;
   fbStatus: string;
+  adAccountId: string;
 
   // Today's metrics
   spend: number;
@@ -73,6 +74,7 @@ export interface EvalConfig {
 export interface CampaignEvaluation {
   campaignId: string;
   campaignName: string;
+  adAccountId: string;
   lifecycle: LifecyclePhase;
   campType: CampType;
   action: EvalAction;
@@ -351,6 +353,7 @@ export function evaluateCampaign(
     return {
       campaignId: data.campaignId,
       campaignName: data.campaignName,
+      adAccountId: data.adAccountId,
       lifecycle: 'PERFORMING',
       campType: 'MIXED',
       action: 'NO_ACTION',
@@ -448,6 +451,7 @@ export function evaluateCampaign(
   return {
     campaignId: data.campaignId,
     campaignName: data.campaignName,
+    adAccountId: data.adAccountId,
     lifecycle,
     campType,
     action,

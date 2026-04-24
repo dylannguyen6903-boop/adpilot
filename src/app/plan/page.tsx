@@ -17,6 +17,7 @@ interface ActionItem {
   type: string;
   campaignId: string;
   campaignName: string;
+  adAccountId?: string;
   description: string;
   reason: string;
   oldBudget: number | null;
@@ -322,13 +323,17 @@ function CampaignCard({ a, targetCpa }: { a: ActionItem; targetCpa: number }) {
 function ActionSection({ title, actions, color, targetCpa, sortKey = 'spend', defaultOpen = true }: { title: string; actions: ActionItem[]; color: string; targetCpa: number; sortKey?: 'spend' | 'profit'; defaultOpen?: boolean }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
-  // Sort by priority
-  const sorted = [...actions].sort((a, b) => {
-    if (sortKey === 'profit') return (b.profitPerOrder ?? -999) - (a.profitPerOrder ?? -999);
-    return (b.spend7d ?? 0) - (a.spend7d ?? 0);
-  });
-
   const totalSpend7d = actions.reduce((s, a) => s + (a.spend7d ?? 0), 0);
+  
+  // Group by adAccountId
+  const groupedActions = actions.reduce((acc, a) => {
+    const key = a.adAccountId || 'Chưa phân loại';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(a);
+    return acc;
+  }, {} as Record<string, ActionItem[]>);
+
+  const groupKeys = Object.keys(groupedActions).sort();
 
   return (
     <div className="card" style={{ padding: 'var(--space-md)' }}>
@@ -342,7 +347,25 @@ function ActionSection({ title, actions, color, targetCpa, sortKey = 'spend', de
       {isOpen && (actions.length === 0 ? (
         <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--text-muted)' }}>Không có camp nào</div>
       ) : (
-        sorted.map(a => <CampaignCard key={a.id} a={a} targetCpa={targetCpa} />)
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+          {groupKeys.map(key => {
+            const groupSorted = [...groupedActions[key]].sort((a, b) => {
+              if (sortKey === 'profit') return (b.profitPerOrder ?? -999) - (a.profitPerOrder ?? -999);
+              return (b.spend7d ?? 0) - (a.spend7d ?? 0);
+            });
+            
+            return (
+              <div key={key}>
+                {groupKeys.length > 1 && (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 'var(--space-sm)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    📁 Tài khoản: {key}
+                  </div>
+                )}
+                {groupSorted.map(a => <CampaignCard key={a.id} a={a} targetCpa={targetCpa} />)}
+              </div>
+            );
+          })}
+        </div>
       ))}
     </div>
   );
@@ -533,7 +556,11 @@ export default function ActionPlanPage() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  const { data, loading, refetch } = useApiData<PlanResponse>(`/api/engine/plan?days=${days}&force=true`);
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const { accounts } = useApiData<{ connections: { facebook: { accounts: { id: string; name?: string; adAccountId: string }[] } } }>('/api/settings/connections').data?.connections?.facebook || { accounts: [] };
+
+  const queryUrl = `/api/engine/plan?days=${days}&force=true${selectedAccount ? `&ad_account_id=${selectedAccount}` : ''}`;
+  const { data, loading, refetch } = useApiData<PlanResponse>(queryUrl);
   const [regenerating, setRegenerating] = useState(false);
 
   const plan = data?.plan;
@@ -549,7 +576,7 @@ export default function ActionPlanPage() {
   const handleRegenerate = async () => {
     setRegenerating(true);
     try {
-      await fetch(`/api/engine/plan?days=${days}`, { method: 'POST', headers: apiHeaders() });
+      await fetch(queryUrl, { method: 'POST', headers: apiHeaders() });
       refetch();
     } finally {
       setRegenerating(false);
@@ -559,6 +586,21 @@ export default function ActionPlanPage() {
   return (
     <>
       <Header title="Kế hoạch Hành động" subtitle={`${today}`}>
+        {accounts && accounts.length > 0 && (
+          <select 
+            className="form-input" 
+            value={selectedAccount} 
+            onChange={e => setSelectedAccount(e.target.value)}
+            style={{ width: 'auto', minWidth: '150px', padding: 'var(--space-xs) var(--space-sm)' }}
+          >
+            <option value="">Tất cả tài khoản</option>
+            {accounts.map(acc => (
+              <option key={acc.adAccountId} value={acc.adAccountId}>
+                {acc.name || acc.adAccountId}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           className={`btn btn-primary btn-sm ${regenerating ? 'syncing' : ''}`}
           onClick={handleRegenerate}

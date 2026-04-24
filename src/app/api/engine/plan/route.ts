@@ -20,23 +20,35 @@ export async function GET(request: Request) {
     const days = parseInt(searchParams.get('days') || '7', 10);
     let date = searchParams.get('date') || getAdAccountToday();
     const force = searchParams.get('force') === 'true';
+    const adAccountId = searchParams.get('ad_account_id') || null;
 
     // Smart fallback: if today has no data, use latest date with data
     if (!searchParams.get('date')) {
-      const { count } = await supabaseAdmin
+      let query = supabaseAdmin
         .from('campaign_snapshots')
         .select('*', { count: 'exact', head: true })
         .eq('snapshot_date', date)
         .gt('spend', 0);
+      
+      if (adAccountId) {
+        query = query.eq('ad_account_id', adAccountId);
+      }
+      
+      const { count } = await query;
 
       if (!count || count === 0) {
-        const { data: latestSnap } = await supabaseAdmin
+        let latestQuery = supabaseAdmin
           .from('campaign_snapshots')
           .select('snapshot_date')
           .gt('spend', 0)
           .order('snapshot_date', { ascending: false })
-          .limit(1)
-          .single();
+          .limit(1);
+          
+        if (adAccountId) {
+          latestQuery = latestQuery.eq('ad_account_id', adAccountId);
+        }
+        
+        const { data: latestSnap } = await latestQuery.single();
         if (latestSnap) {
           date = latestSnap.snapshot_date;
         }
@@ -44,7 +56,7 @@ export async function GET(request: Request) {
     }
 
     // Check if plan already exists (cache)
-    if (!force) {
+    if (!force && !adAccountId) {
       const { data: existingPlan } = await supabaseAdmin
         .from('action_plans')
         .select('*')
@@ -63,7 +75,7 @@ export async function GET(request: Request) {
       }
     }
 
-    return await generateAndReturnPlan(date, days);
+    return await generateAndReturnPlan(date, days, adAccountId);
   } catch {
     return NextResponse.json(
       { error: 'Plan generation failed.' },
@@ -80,29 +92,41 @@ export async function POST(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);
+    const adAccountId = searchParams.get('ad_account_id') || null;
     let today = getAdAccountToday();
 
     // Smart fallback: if today has no data, use latest date
-    const { count } = await supabaseAdmin
+    let countQuery = supabaseAdmin
       .from('campaign_snapshots')
       .select('*', { count: 'exact', head: true })
       .eq('snapshot_date', today)
       .gt('spend', 0);
+      
+    if (adAccountId) {
+      countQuery = countQuery.eq('ad_account_id', adAccountId);
+    }
+    
+    const { count } = await countQuery;
 
     if (!count || count === 0) {
-      const { data: latestSnap } = await supabaseAdmin
+      let latestQuery = supabaseAdmin
         .from('campaign_snapshots')
         .select('snapshot_date')
         .gt('spend', 0)
         .order('snapshot_date', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
+        
+      if (adAccountId) {
+        latestQuery = latestQuery.eq('ad_account_id', adAccountId);
+      }
+      
+      const { data: latestSnap } = await latestQuery.single();
       if (latestSnap) {
         today = latestSnap.snapshot_date;
       }
     }
 
-    return await generateAndReturnPlan(today, days);
+    return await generateAndReturnPlan(today, days, adAccountId);
   } catch {
     return NextResponse.json(
       { error: 'Plan generation failed.' },
@@ -134,7 +158,7 @@ interface DailySnapshot {
 // Main Plan Generation
 // ─────────────────────────────────────────
 
-async function generateAndReturnPlan(date: string, days: number) {
+async function generateAndReturnPlan(date: string, days: number, adAccountId: string | null = null) {
   // Use 7-day window for evaluation, but fetch up to `days` for trends
   const evalDays = Math.max(days, 7);
   const fromDate = new Date(
@@ -142,7 +166,7 @@ async function generateAndReturnPlan(date: string, days: number) {
   ).toISOString().split('T')[0];
 
   // 1. Get snapshots in range — ALL campaigns with any spend in period
-  const { data: rawSnapshots } = await supabaseAdmin
+  let snapQuery = supabaseAdmin
     .from('campaign_snapshots')
     .select('*')
     .gte('snapshot_date', fromDate)
@@ -150,6 +174,12 @@ async function generateAndReturnPlan(date: string, days: number) {
     .gt('spend', 0)
     .order('snapshot_date', { ascending: true })
     .limit(10000);
+    
+  if (adAccountId) {
+    snapQuery = snapQuery.eq('ad_account_id', adAccountId);
+  }
+  
+  const { data: rawSnapshots } = await snapQuery;
 
   if (!rawSnapshots || rawSnapshots.length === 0) {
     return NextResponse.json({
@@ -166,6 +196,7 @@ async function generateAndReturnPlan(date: string, days: number) {
     name: string;
     fbStatus: string;
     dailyBudget: number;
+    adAccountId: string;
     dailySnapshots: DailySnapshot[];
     createdTime: string | null;
   }>();
@@ -193,12 +224,14 @@ async function generateAndReturnPlan(date: string, days: number) {
       if (snap.snapshot_date >= existing.dailySnapshots[0].snapshot_date) {
         existing.fbStatus = snap.fb_status || 'ACTIVE';
         existing.dailyBudget = snap.daily_budget || 0;
+        if (snap.ad_account_id) existing.adAccountId = snap.ad_account_id;
       }
     } else {
       campDailyMap.set(snap.campaign_id, {
         name: snap.campaign_name,
         fbStatus: snap.fb_status || 'ACTIVE',
         dailyBudget: snap.daily_budget || 0,
+        adAccountId: snap.ad_account_id || '',
         dailySnapshots: [dailySnap],
         createdTime: snap.campaign_created_time || null,
       });
@@ -302,6 +335,7 @@ async function generateAndReturnPlan(date: string, days: number) {
       campaignId,
       campaignName: campInfo.name,
       fbStatus: campInfo.fbStatus,
+      adAccountId: campInfo.adAccountId,
       // Today
       spend: todaySnap.spend,
       conversions: todaySnap.conversions,
@@ -342,11 +376,17 @@ async function generateAndReturnPlan(date: string, days: number) {
   // 5. Get TODAY's numbers — same source as Dashboard
   // Dashboard uses: /api/facebook/campaigns?days=1 → snapshot_date = today, spend > 0
   // Dashboard uses: /api/engine/margin?days=1 → daily_financials report_date = today
-  const { data: todaySnapshots } = await supabaseAdmin
+  let todaySnapshotsQuery = supabaseAdmin
     .from('campaign_snapshots')
     .select('spend, conversions')
     .eq('snapshot_date', date)
     .gt('spend', 0);
+    
+  if (adAccountId) {
+    todaySnapshotsQuery = todaySnapshotsQuery.eq('ad_account_id', adAccountId);
+  }
+  
+  const { data: todaySnapshots } = await todaySnapshotsQuery;
 
   const todaySpend = todaySnapshots?.reduce((s: number, r: { spend: number }) => s + (r.spend || 0), 0) ?? 0;
   const todayOrders = todaySnapshots?.reduce((s: number, r: { conversions: number }) => s + (r.conversions || 0), 0) ?? 0;
@@ -380,18 +420,20 @@ async function generateAndReturnPlan(date: string, days: number) {
 
   // 8. Save to DB (best effort)
   try {
-    await supabaseAdmin.from('action_plans').upsert(
-      {
-        plan_date: date,
-        actions: plan.actions,
-        projected_margin: plan.projectedMargin,
-        budget_saved: plan.budgetSaved,
-        ai_summary: plan.aiSummary,
-        ai_used: plan.aiUsed,
-        ai_tokens: plan.aiTokens,
-      },
-      { onConflict: 'plan_date' }
-    );
+    if (!adAccountId) {
+      await supabaseAdmin.from('action_plans').upsert(
+        {
+          plan_date: date,
+          actions: plan.actions,
+          projected_margin: plan.projectedMargin,
+          budget_saved: plan.budgetSaved,
+          ai_summary: plan.aiSummary,
+          ai_used: plan.aiUsed,
+          ai_tokens: plan.aiTokens,
+        },
+        { onConflict: 'plan_date' }
+      );
+    }
   } catch {
     // Non-critical: plan was generated successfully even if DB save fails
   }
@@ -424,12 +466,18 @@ async function generateAndReturnPlan(date: string, days: number) {
 
     const mtdRevenue = mtdFinancials?.reduce((s: number, r: { shopify_revenue: number }) => s + (r.shopify_revenue || 0), 0) ?? 0;
 
-    const { data: mtdSnaps } = await supabaseAdmin
+    let mtdSnapsQuery = supabaseAdmin
       .from('campaign_snapshots')
       .select('spend, conversions')
       .gte('snapshot_date', firstOfMonth)
       .lte('snapshot_date', date)
       .gt('spend', 0);
+      
+    if (adAccountId) {
+      mtdSnapsQuery = mtdSnapsQuery.eq('ad_account_id', adAccountId);
+    }
+    
+    const { data: mtdSnaps } = await mtdSnapsQuery;
 
     const mtdAdSpend = mtdSnaps?.reduce((s: number, r: { spend: number }) => s + (r.spend || 0), 0) ?? 0;
     const mtdOrders = mtdSnaps?.reduce((s: number, r: { conversions: number }) => s + (r.conversions || 0), 0) ?? 0;
