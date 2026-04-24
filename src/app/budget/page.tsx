@@ -93,10 +93,10 @@ export default function BudgetAllocatorPage() {
       <Header title="Phân bổ ngân sách" subtitle="Tối ưu hóa phân bổ chi tiêu quảng cáo hàng ngày">
         {accounts && accounts.length > 0 && (
           <select 
-            className="select" 
+            className="form-input" 
             value={selectedAccount} 
             onChange={e => setSelectedAccount(e.target.value)}
-            style={{ width: 'auto', minWidth: '150px' }}
+            style={{ width: 'auto', minWidth: '150px', padding: 'var(--space-xs) var(--space-sm)' }}
           >
             <option value="">Tất cả tài khoản</option>
             {accounts.map(acc => (

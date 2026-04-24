@@ -148,10 +148,10 @@ export default function DashboardPage() {
       <Header title="Tổng quan" subtitle={`Báo cáo ${timeframeLabel} — hiệu suất nhanh`}>
         {accounts && accounts.length > 0 && (
           <select 
-            className="select" 
+            className="form-input" 
             value={selectedAccount} 
             onChange={e => setSelectedAccount(e.target.value)}
-            style={{ width: 'auto', minWidth: '150px' }}
+            style={{ width: 'auto', minWidth: '150px', padding: 'var(--space-xs) var(--space-sm)' }}
           >
             <option value="">Tất cả tài khoản</option>
             {accounts.map(acc => (
