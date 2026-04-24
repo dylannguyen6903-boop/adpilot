@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     return await generateAndReturnPlan(date, days);
   } catch (error) {
     return NextResponse.json(
-      { error: `Plan generation failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Plan generation failed.' },
       { status: 500 }
     );
   }
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
     return await generateAndReturnPlan(today, days);
   } catch (error) {
     return NextResponse.json(
-      { error: `Plan generation failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Plan generation failed.' },
       { status: 500 }
     );
   }

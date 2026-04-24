@@ -166,12 +166,29 @@ async function fetchPaginated<T>(nextUrl: string, results: T[]): Promise<void> {
         return; // Return partial results instead of throwing
       }
       const retryData: FBResponse<T> = await retryRes.json();
+      if (retryData.error) {
+        console.warn(`[FB API] Pagination retry returned error: ${retryData.error.message}`);
+        return;
+      }
       results.push(...retryData.data);
       url = retryData.paging?.next;
       continue;
     }
 
+    // Check response status before parsing JSON
+    if (!pageRes.ok) {
+      console.warn(`[FB API] Pagination request failed (${pageRes.status}), returning partial results`);
+      return;
+    }
+
     const pageData: FBResponse<T> = await pageRes.json();
+
+    // Check for Facebook error object (can return 200 with error body)
+    if (pageData.error) {
+      console.warn(`[FB API] Pagination returned error: ${pageData.error.message}`);
+      return;
+    }
+
     results.push(...pageData.data);
     url = pageData.paging?.next;
   }
@@ -189,7 +206,6 @@ export async function fetchCampaigns(
   }
 
   const allCampaigns: FBCampaign[] = [];
-  let nextUrl: string | undefined;
 
   // First request
   const fields = 'id,name,objective,status,daily_budget,lifetime_budget,created_time,updated_time';
@@ -208,7 +224,7 @@ export async function fetchCampaigns(
   }
 
   allCampaigns.push(...result.data);
-  nextUrl = result.paging?.next;
+  const nextUrl = result.paging?.next;
 
   // Paginate if needed (with rate limit protection)
   if (nextUrl) {
@@ -233,7 +249,6 @@ export async function fetchCampaignInsights(
   }
 
   const allInsights: FBInsight[] = [];
-  let nextUrl: string | undefined;
 
   const fields = [
     'campaign_id',
@@ -277,7 +292,7 @@ export async function fetchCampaignInsights(
   }
 
   allInsights.push(...result.data);
-  nextUrl = result.paging?.next;
+  const nextUrl = result.paging?.next;
 
   // Paginate with rate limit protection
   if (nextUrl) {

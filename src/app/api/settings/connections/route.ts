@@ -44,12 +44,20 @@ export async function GET() {
       }];
     }
 
+    // Mask access tokens before sending to client
+    const maskedAccounts = fbAccounts.map((acc: Record<string, unknown>) => ({
+      ...acc,
+      accessToken: typeof acc.accessToken === 'string' && (acc.accessToken as string).length > 14
+        ? (acc.accessToken as string).substring(0, 10) + '***' + (acc.accessToken as string).substring((acc.accessToken as string).length - 4)
+        : '***configured***',
+    }));
+
     return NextResponse.json({
       success: true,
       connections: {
         facebook: {
           configured: fbAccounts.length > 0,
-          accounts: fbAccounts,
+          accounts: maskedAccounts,
           lastSync: fbLogs?.[0]?.created_at || null,
           lastSyncStatus: fbLogs?.[0]?.status || null,
           lastError: fbLogs?.[0]?.error_message || null,
@@ -63,9 +71,9 @@ export async function GET() {
         },
       },
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: `Failed to fetch connections: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to load connections.' },
       { status: 500 }
     );
   }
@@ -84,20 +92,57 @@ export async function PUT(request: NextRequest) {
 
     // Validate and save Facebook credentials (multi-account)
     if (body.fbAccounts !== undefined && Array.isArray(body.fbAccounts)) {
+      // Fetch existing accounts from DB to distinguish NEW tokens from existing ones
+      const { data: currentProfile } = await supabaseAdmin
+        .from('business_profiles')
+        .select('fb_accounts')
+        .limit(1)
+        .single();
+      const existingTokens = new Set(
+        (Array.isArray(currentProfile?.fb_accounts) ? currentProfile.fb_accounts : [])
+          .map((a: { accessToken?: string }) => a.accessToken)
+          .filter(Boolean)
+      );
+
       validationResults.facebook = [];
+      const invalidNewAccounts: string[] = [];
+
       for (const account of body.fbAccounts) {
         if (account.accessToken) {
-          const fbValidation = await validateFacebookToken(account.accessToken);
-          (validationResults.facebook as any[]).push({ ...account, valid: fbValidation.valid, error: fbValidation.error });
+          const isNewToken = !existingTokens.has(account.accessToken);
 
-          if (!fbValidation.valid) {
-            // Soft failure: We allow the user to save the array (e.g. to delete an account),
-            // even if another account in the array happens to be expired.
-            // Returning 400 here would lock the user out from ever editing their array!
-            console.warn(`Saved invalid FB token for ${account.name || account.adAccountId}: ${fbValidation.error}`);
+          if (isNewToken) {
+            // Only validate genuinely NEW tokens — don't re-validate existing ones
+            const fbValidation = await validateFacebookToken(account.accessToken);
+            (validationResults.facebook as any[]).push({
+              ...account, valid: fbValidation.valid, error: fbValidation.error, isNew: true,
+            });
+
+            if (!fbValidation.valid) {
+              invalidNewAccounts.push(
+                `${account.name || account.adAccountId}: ${fbValidation.error}`
+              );
+            }
+          } else {
+            // Existing token — skip validation, allow removals/reorders
+            (validationResults.facebook as any[]).push({
+              ...account, valid: true, isNew: false,
+            });
           }
         }
       }
+
+      // Reject if ANY new token is invalid — don't save garbage credentials
+      if (invalidNewAccounts.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Token Facebook không hợp lệ: ${invalidNewAccounts.join('; ')}`,
+            validationResults,
+          },
+          { status: 400 }
+        );
+      }
+
       updates.fb_accounts = body.fbAccounts;
     }
 
@@ -166,7 +211,7 @@ export async function PUT(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Failed to save connections: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to save connections.' },
       { status: 500 }
     );
   }

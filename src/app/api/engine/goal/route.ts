@@ -148,7 +148,7 @@ export async function GET() {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Goal calculation failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Goal calculation failed.' },
       { status: 500 }
     );
   }

@@ -153,7 +153,7 @@ export async function POST() {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Classification failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Classification failed.' },
       { status: 500 }
     );
   }

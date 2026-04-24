@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     // Regular sync: 3 days (today + lag correction). DB accumulates over time.
     // Backfill: 30 days (manual trigger for initial data load)
     const today = getAdAccountToday();
-    const fromDate = getAdAccountDateMinusDays(syncDays);
+    const fromDate = getAdAccountDateMinusDays(syncDays - 1);
 
     // ── Fetch campaigns + insights per account, track errors ──
     const allCampaigns: any[] = [];
@@ -261,7 +261,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: `Facebook sync failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Facebook sync failed. Check credentials in Settings.' },
       { status: 500 }
     );
   }

@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Failed to fetch insights: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to load insights.' },
       { status: 500 }
     );
   }

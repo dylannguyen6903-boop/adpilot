@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Failed to fetch analytics: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to load analytics.' },
       { status: 500 }
     );
   }

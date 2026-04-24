@@ -73,9 +73,13 @@ export default function DashboardPage() {
   const today = new Date().toISOString().split('T')[0];
   const fromDate = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
 
-  const { data: marginData } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}`);
-  const { data: campaignsData } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}`);
-  const { data: insightsData } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}`);
+  const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}`);
+  const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}`);
+  const { data: insightsData, error: insightsError } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}`);
+
+  // Check for critical API failures
+  const coreErrors = [marginError, campaignsError].filter(Boolean);
+  const hasDataError = coreErrors.length > 0;
 
   const margin = marginData?.margin;
   const campaigns = campaignsData?.campaigns || [];
@@ -142,6 +146,31 @@ export default function DashboardPage() {
         <TimeframeSelector value={days} onChange={setDays} />
       </Header>
       <PageContainer>
+        {/* Data Error Alert — shown when core APIs fail */}
+        {hasDataError && (
+          <div className="card" id="dashboard-error-alert" style={{
+            padding: 'var(--space-md)',
+            marginBottom: 'var(--space-md)',
+            border: '1px solid var(--color-kill)',
+            background: 'rgba(239, 68, 68, 0.08)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+              <span style={{ fontSize: 'var(--text-xl)' }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--color-kill)', marginBottom: 2 }}>
+                  Không tải được dữ liệu
+                </div>
+                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                  {coreErrors.join(' • ')} — Kiểm tra kết nối Facebook/Shopify trong Settings.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Only render KPIs when we have real data — never show $0 from API failures */}
+        {!hasDataError && (
+          <>
         {/* Margin Alert */}
         {margin && (
           <div className={`margin-alert ${marginClass}`} id="margin-alert-banner">
@@ -189,6 +218,8 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+          </>
+        )}
 
         {/* Charts Row */}
         <div className="grid-2">

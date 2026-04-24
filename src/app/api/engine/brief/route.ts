@@ -213,7 +213,7 @@ export async function GET() {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Brief generation failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Brief generation failed.' },
       { status: 500 }
     );
   }

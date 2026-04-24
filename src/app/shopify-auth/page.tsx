@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Header, PageContainer } from '@/components/layout';
+import { apiHeaders } from '@/hooks/useApi';
 
 export default function ShopifyAuthPage() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -22,7 +23,7 @@ export default function ShopifyAuthPage() {
       // Actually, hitting Shopify from client MIGHT throw CORS. We'll use a local API route to proxy.
       fetch('/api/shopify/exchange', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiHeaders(),
         body: JSON.stringify({ shop, code, clientId, clientSecret })
       })
       .then(res => res.json())

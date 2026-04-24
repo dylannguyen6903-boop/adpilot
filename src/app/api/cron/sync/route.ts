@@ -16,6 +16,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Build headers for internal API calls (forward API key for middleware)
+  const internalHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  const apiKey = process.env.ADPILOT_API_KEY;
+  if (apiKey) internalHeaders['x-api-key'] = apiKey;
+
   const results = {
     facebook: { success: false, error: null as string | null, data: null as Record<string, unknown> | null },
     shopify: { success: false, error: null as string | null, data: null as Record<string, unknown> | null },
@@ -25,7 +30,7 @@ export async function POST(request: NextRequest) {
   try {
     const fbRes = await fetch(new URL('/api/facebook/sync', request.url), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: internalHeaders,
     });
     const fbData = await fbRes.json();
     results.facebook.success = fbRes.ok;
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
   try {
     const shopifyRes = await fetch(new URL('/api/shopify/sync', request.url), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: internalHeaders,
     });
     const shopifyData = await shopifyRes.json();
     results.shopify.success = shopifyRes.ok;

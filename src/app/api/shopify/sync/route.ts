@@ -31,7 +31,23 @@ export async function POST(request: NextRequest) {
         };
       }
     } catch {
-      // No body, use env config
+      // No body, try DB then env config
+    }
+
+    // Priority: request body → DB credentials → env vars
+    if (!customConfig) {
+      const { data: profile } = await supabaseAdmin
+        .from('business_profiles')
+        .select('shopify_store_domain, shopify_access_token')
+        .limit(1)
+        .single();
+
+      if (profile?.shopify_store_domain && profile?.shopify_access_token) {
+        customConfig = {
+          storeDomain: profile.shopify_store_domain,
+          accessToken: profile.shopify_access_token,
+        };
+      }
     }
 
     const config = customConfig || getShopifyConfig();
@@ -133,7 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: `Shopify sync failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Shopify sync failed. Check credentials in Settings.' },
       { status: 500 }
     );
   }

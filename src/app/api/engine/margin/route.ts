@@ -106,7 +106,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Margin calculation failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Margin calculation failed.' },
       { status: 500 }
     );
   }

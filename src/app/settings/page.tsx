@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Header, PageContainer } from '@/components/layout';
-import { useApiData, useApiAction } from '@/hooks/useApi';
+import { useApiData, useApiAction, apiHeaders } from '@/hooks/useApi';
 import { timeAgo } from '@/lib/utils';
 
 interface ProfileResponse {
@@ -106,7 +106,7 @@ export default function SettingsPage() {
     setProfileMsg('');
     const putRes = await fetch('/api/settings/profile', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({
         storeName,
         aov,
@@ -123,10 +123,10 @@ export default function SettingsPage() {
       }),
     });
     if (putRes.ok) {
-      setProfileMsg('Lưu hồ sơ thành công!');
+      setProfileMsg('✅ Lưu hồ sơ thành công!');
     } else {
       const err = await putRes.json();
-      setProfileMsg(`❌ ${err.error || 'Save failed'}`);
+      setProfileMsg(`❌ ${err.error || 'Lưu thất bại'}`);
     }
   };
 
@@ -135,17 +135,17 @@ export default function SettingsPage() {
     const newAccounts = [...fbAccounts, { id: Date.now().toString(), accessToken: fbToken, adAccountId: fbAccountId }];
     const res = await fetch('/api/settings/connections', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ fbAccounts: newAccounts }),
     });
     const data = await res.json();
     if (res.ok) {
-      setFbMsg('Kết nối Facebook thành công! Token đã được xác thực.');
+      setFbMsg('✅ Kết nối Facebook thành công! Token đã được xác thực.');
       setFbToken('');
       setFbAccountId('');
       refetchConnections();
     } else {
-      setFbMsg(`❌ ${data.error || 'Connection failed'}`);
+      setFbMsg(`❌ ${data.error || 'Kết nối thất bại'}`);
     }
   };
 
@@ -156,15 +156,15 @@ export default function SettingsPage() {
     const newAccounts = fbAccounts.filter(a => a.id !== id);
     const res = await fetch('/api/settings/connections', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ fbAccounts: newAccounts }),
     });
     const data = await res.json();
     if (res.ok) {
-      setFbMsg('Đã xóa kết nối.');
+      setFbMsg('✅ Đã xóa kết nối.');
       refetchConnections();
     } else {
-      setFbMsg(`❌ ${data.error || 'Removal failed'}`);
+      setFbMsg(`❌ ${data.error || 'Xóa thất bại'}`);
     }
   };
 
@@ -172,16 +172,16 @@ export default function SettingsPage() {
     setShopifyMsg('');
     const res = await fetch('/api/settings/connections', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ shopifyStoreDomain: shopifyDomain, shopifyAccessToken: shopifyToken }),
     });
     const data = await res.json();
     if (res.ok) {
-      setShopifyMsg('Kết nối Shopify thành công!');
+      setShopifyMsg('✅ Kết nối Shopify thành công!');
       setShopifyToken('');
       refetchConnections();
     } else {
-      setShopifyMsg(`❌ ${data.error || 'Connection failed'}`);
+      setShopifyMsg(`❌ ${data.error || 'Kết nối thất bại'}`);
     }
   };
 
@@ -446,7 +446,7 @@ export default function SettingsPage() {
                       try {
                         const res = await fetch('/api/settings/test-ai', {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: apiHeaders(),
                           body: JSON.stringify({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }),
                         });
                         const data = await res.json();
@@ -472,7 +472,7 @@ export default function SettingsPage() {
                       setAiMsg('');
                       const res = await fetch('/api/settings/profile', {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: apiHeaders(),
                         body: JSON.stringify({
                           storeName, aov,
                           targetMarginMin: marginMin / 100,

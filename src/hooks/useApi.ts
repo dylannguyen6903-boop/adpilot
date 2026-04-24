@@ -2,6 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+/** Shared headers for all API requests — includes auth key */
+function apiHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // Add API key if configured (NEXT_PUBLIC_ so it's available in browser)
+  const apiKey = process.env.NEXT_PUBLIC_ADPILOT_API_KEY;
+  if (apiKey) {
+    headers['x-api-key'] = apiKey;
+  }
+
+  return { ...headers, ...extra };
+}
+
 /**
  * Generic hook for fetching data from API routes.
  */
@@ -18,7 +33,7 @@ export function useApiData<T>(
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: apiHeaders() });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
       setData(json);
@@ -58,7 +73,7 @@ export function useApiAction<TResponse, TBody = unknown>(url: string) {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiHeaders(),
         body: body ? JSON.stringify(body) : undefined,
       });
       const json = await res.json();
@@ -74,3 +89,6 @@ export function useApiAction<TResponse, TBody = unknown>(url: string) {
 
   return { execute, loading, error };
 }
+
+/** Export for use in direct fetch() calls across the app */
+export { apiHeaders };

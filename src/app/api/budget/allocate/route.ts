@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, allocation: result });
   } catch (error) {
     return NextResponse.json(
-      { error: `Budget allocation failed: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Budget allocation failed.' },
       { status: 500 }
     );
   }

@@ -117,6 +117,23 @@ export function allocateBudget(
     allocatedBudget += rounded;
   }
 
+  // ── Step 2b: Enforce total budget cap ──
+  // Min 80% constraints can push sum above totalDailyBudget.
+  // Scale down proportionally to stay within the requested total.
+  if (allocatedBudget > config.totalDailyBudget && config.totalDailyBudget > 0) {
+    const scaleFactor = config.totalDailyBudget / allocatedBudget;
+    allocatedBudget = 0;
+    for (const a of allocations) {
+      if (a.recommendedBudget > 0) {
+        a.recommendedBudget = Math.round(a.recommendedBudget * scaleFactor * 100) / 100;
+        a.changePercent = a.currentBudget > 0
+          ? Math.round(((a.recommendedBudget - a.currentBudget) / a.currentBudget) * 1000) / 10
+          : 0;
+        allocatedBudget += a.recommendedBudget;
+      }
+    }
+  }
+
   // Add ineligible campaigns with zero allocation
   for (const c of ineligible) {
     allocations.push({

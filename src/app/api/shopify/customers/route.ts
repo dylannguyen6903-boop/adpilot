@@ -26,14 +26,21 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: `Database error: ${error.message}` },
+        { error: 'Failed to load customer data.' },
         { status: 500 }
       );
     }
 
-    const customers = data || [];
+    const customers = (data || []).map((c: Record<string, unknown>) => ({
+      ...c,
+      // Mask email: "john.doe@gmail.com" → "jo***@gmail.com"
+      customer_email: typeof c.customer_email === 'string'
+        ? maskEmail(c.customer_email as string)
+        : null,
+    }));
+
     const totalCustomers = customers.length;
-    const returningCount = customers.filter((c) => c.is_returning).length;
+    const returningCount = customers.filter((c: Record<string, unknown>) => c.is_returning).length;
     const returningRate = totalCustomers > 0 ? returningCount / totalCustomers : 0;
 
     return NextResponse.json({
@@ -45,10 +52,18 @@ export async function GET(request: NextRequest) {
       },
       customers,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: `Failed to fetch customers: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to load customer data.' },
       { status: 500 }
     );
   }
+}
+
+/** Mask email: "john.doe@gmail.com" → "jo***@gmail.com" */
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '***@***';
+  const visible = Math.min(2, local.length);
+  return local.substring(0, visible) + '***@' + domain;
 }

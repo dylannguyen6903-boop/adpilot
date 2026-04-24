@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Header, PageContainer } from '@/components/layout';
-import { useApiData } from '@/hooks/useApi';
+import { useApiData, apiHeaders } from '@/hooks/useApi';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import MorningBrief from '@/components/MorningBrief';
 import type { GoalBreakdown, GoalRecommendation, CpaSensitivity } from '@/engine/goalEngine';
@@ -394,7 +394,7 @@ function AIChatPanel({ planSummary }: { planSummary: string | null }) {
     try {
       const res = await fetch('/api/engine/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiHeaders(),
         body: JSON.stringify({ message: userMsg, history: messages.slice(-6) }),
       });
       const data = await res.json();
@@ -549,7 +549,7 @@ export default function ActionPlanPage() {
   const handleRegenerate = async () => {
     setRegenerating(true);
     try {
-      await fetch(`/api/engine/plan?days=${days}`, { method: 'POST' });
+      await fetch(`/api/engine/plan?days=${days}`, { method: 'POST', headers: apiHeaders() });
       refetch();
     } finally {
       setRegenerating(false);

@@ -12,21 +12,38 @@ export async function GET() {
   try {
     const { data, error } = await supabaseAdmin
       .from('business_profiles')
-      .select('*')
+      .select(`
+        id, store_name, store_url,
+        target_margin_min, target_margin_max, avg_cogs_rate,
+        target_cpa, aov, returning_rate, avg_repeat_orders,
+        threshold_winner, threshold_promising, threshold_watch,
+        monthly_profit_target,
+        ai_provider, ai_api_key, ai_model,
+        created_at, updated_at
+      `)
       .limit(1)
       .single();
 
     if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to load profile.' }, { status: 500 });
     }
 
-    return NextResponse.json({
-      success: true,
-      profile: data || null,
-    });
-  } catch (error) {
+    // Mask sensitive fields before sending to client
+    if (data) {
+      const masked = { ...data } as Record<string, unknown>;
+      if (masked.ai_api_key && typeof masked.ai_api_key === 'string') {
+        const key = masked.ai_api_key as string;
+        masked.ai_api_key = key.length > 12
+          ? key.substring(0, 8) + '***' + key.substring(key.length - 4)
+          : '***configured***';
+      }
+      return NextResponse.json({ success: true, profile: masked });
+    }
+
+    return NextResponse.json({ success: true, profile: null });
+  } catch {
     return NextResponse.json(
-      { error: `Failed to fetch profile: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to load profile.' },
       { status: 500 }
     );
   }
@@ -111,7 +128,7 @@ export async function PUT(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: `Failed to save profile: ${error instanceof Error ? error.message : String(error)}` },
+      { error: 'Failed to save profile.' },
       { status: 500 }
     );
   }
