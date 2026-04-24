@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { apiHeaders } from '@/hooks/useApi';
 
 interface HeaderProps {
   title: string;
@@ -22,7 +23,7 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
 
   // Check last sync status on mount
   useEffect(() => {
-    fetch('/api/settings/connections')
+    fetch('/api/settings/connections', { headers: apiHeaders() })
       .then(r => r.json())
       .then(data => {
         const fb = data?.connections?.facebook;
@@ -54,8 +55,8 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
     try {
       // Sync both in parallel
       const [fbRes, shopifyRes] = await Promise.allSettled([
-        fetch('/api/facebook/sync', { method: 'POST' }),
-        fetch('/api/shopify/sync', { method: 'POST' }),
+        fetch('/api/facebook/sync', { method: 'POST', headers: apiHeaders() }),
+        fetch('/api/shopify/sync', { method: 'POST', headers: apiHeaders() }),
       ]);
 
       const fbOk = fbRes.status === 'fulfilled' && fbRes.value.ok;
