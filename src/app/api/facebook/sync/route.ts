@@ -10,6 +10,8 @@ import {
   extractLandingPageViews,
   parseFBBudget,
   calculateFBRoas,
+  type FBCampaign,
+  type FBInsight,
 } from '@/lib/facebook';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
@@ -44,10 +46,10 @@ export async function POST(request: NextRequest) {
     // Prioritize new JSONB array
     if (profile.fb_accounts && Array.isArray(profile.fb_accounts) && profile.fb_accounts.length > 0) {
       accountsToSync = profile.fb_accounts
-        .filter((a: any) => (a.accessToken || a.access_token) && (a.accountId || a.adAccountId))
-        .map((a: any) => ({
-          accessToken: a.accessToken || a.access_token,
-          adAccountId: a.accountId || a.adAccountId,
+        .filter((a: Record<string, unknown>) => (a.accessToken || a.access_token) && (a.accountId || a.adAccountId))
+        .map((a: Record<string, unknown>) => ({
+          accessToken: (a.accessToken || a.access_token) as string,
+          adAccountId: (a.accountId || a.adAccountId) as string,
           apiVersion: 'v21.0'
         }));
     } else if (profile.fb_access_token && profile.fb_ad_account_id) {
@@ -94,8 +96,8 @@ export async function POST(request: NextRequest) {
     const fromDate = getAdAccountDateMinusDays(syncDays - 1);
 
     // ── Fetch campaigns + insights per account, track errors ──
-    const allCampaigns: any[] = [];
-    const allInsights: any[] = [];
+    const allCampaigns: FBCampaign[] = [];
+    const allInsights: FBInsight[] = [];
     const accountErrors: { accountId: string; error: string }[] = [];
     let accountsSucceeded = 0;
 
@@ -145,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     // ── Upsert snapshots into DB ──
     let syncedCount = 0;
-    const snapshotsToUpsert: any[] = [];
+    const snapshotsToUpsert: Record<string, unknown>[] = [];
 
     for (const campaign of allCampaigns) {
       const insightsForCampaign = allInsights.filter(i => i.campaign_id === campaign.id);
@@ -266,3 +268,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

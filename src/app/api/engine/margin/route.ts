@@ -104,10 +104,11 @@ export async function GET(request: Request) {
       toDate: anchorDate,
       margin: result,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Margin calculation failed.' },
       { status: 500 }
     );
   }
 }
+

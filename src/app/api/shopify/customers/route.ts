@@ -67,3 +67,4 @@ function maskEmail(email: string): string {
   const visible = Math.min(2, local.length);
   return local.substring(0, visible) + '***@' + domain;
 }
+

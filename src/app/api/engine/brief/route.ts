@@ -211,10 +211,11 @@ export async function GET() {
       },
       alerts: topAlerts,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Brief generation failed.' },
       { status: 500 }
     );
   }
 }
+

@@ -13,7 +13,7 @@
 import type { CampaignStatus } from '@/types/campaign';
 import { coefficientOfVariation } from '@/lib/utils';
 import { ltvAdjustedCPA } from './ltv';
-import { calculateCampaignMargin, type MarginConfig } from './margin';
+import { calculateCampaignMargin } from './margin';
 
 export interface ClassifierConfig {
   // LTV params

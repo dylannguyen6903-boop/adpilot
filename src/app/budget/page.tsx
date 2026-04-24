@@ -246,7 +246,7 @@ export default function BudgetAllocatorPage() {
               <div className="empty-state-icon"></div>
               <div className="empty-state-title">Thiết lập ngân sách</div>
               <div className="empty-state-text">
-                Nhập tổng ngân sách hàng ngày ở trên và bấm "Tính toán phân bổ" để xem đề xuất phân bổ tối ưu bằng AI cho các chiến dịch.
+                Nhập tổng ngân sách hàng ngày ở trên và bấm &quot;Tính toán phân bổ&quot; để xem đề xuất phân bổ tối ưu bằng AI cho các chiến dịch.
               </div>
             </div>
           </div>

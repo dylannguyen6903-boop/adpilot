@@ -69,10 +69,11 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ success: true, allocation: result });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Budget allocation failed.' },
       { status: 500 }
     );
   }
 }
+

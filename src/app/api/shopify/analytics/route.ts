@@ -45,10 +45,11 @@ export async function GET(request: NextRequest) {
       },
       daily: days,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to load analytics.' },
       { status: 500 }
     );
   }
 }
+

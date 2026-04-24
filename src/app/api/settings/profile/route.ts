@@ -126,10 +126,11 @@ export async function PUT(request: NextRequest) {
       success: true,
       profile: result.data,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to save profile.' },
       { status: 500 }
     );
   }
 }
+

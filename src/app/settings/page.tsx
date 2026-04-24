@@ -69,10 +69,11 @@ export default function SettingsPage() {
   const { data: connectionsData, refetch: refetchConnections } = useApiData<ConnectionsResponse>('/api/settings/connections');
 
   // Save actions
-  const { execute: saveProfile, loading: savingProfile } = useApiAction<unknown, unknown>('/api/settings/profile');
-  const { execute: saveConnections, loading: savingConnections } = useApiAction<unknown, unknown>('/api/settings/connections');
+  const { execute: _saveProfile, loading: savingProfile } = useApiAction<unknown, unknown>('/api/settings/profile');
+  const { execute: _saveConnections, loading: savingConnections } = useApiAction<unknown, unknown>('/api/settings/connections');
 
   // Populate form from loaded data
+  /* eslint-disable react-hooks/set-state-in-effect -- populating form from API response */
   useEffect(() => {
     const p = profileData?.profile;
     if (!p) return;
@@ -93,14 +94,17 @@ export default function SettingsPage() {
     if (p.ai_api_key) setAiApiKey(p.ai_api_key as string);
     if (p.ai_model) setAiModel(p.ai_model as string);
   }, [profileData]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const connections = connectionsData?.connections;
 
+  /* eslint-disable react-hooks/set-state-in-effect -- syncing API data to local state */
   useEffect(() => {
     if (connectionsData?.connections?.facebook?.accounts) {
       setFbAccounts(connectionsData.connections.facebook.accounts);
     }
   }, [connectionsData]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSaveProfile = async () => {
     setProfileMsg('');

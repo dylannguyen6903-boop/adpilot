@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Header, PageContainer } from '@/components/layout';
 import { useApiData, apiHeaders } from '@/hooks/useApi';
-import { formatCurrency, formatPercent } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import MorningBrief from '@/components/MorningBrief';
 import type { GoalBreakdown, GoalRecommendation, CpaSensitivity } from '@/engine/goalEngine';
 import type { CampaignEvaluation } from '@/engine/evaluator';
@@ -373,7 +373,7 @@ function SensitivityTable({ data }: { data: CpaSensitivity[] }) {
   );
 }
 
-function AIChatPanel({ planSummary }: { planSummary: string | null }) {
+function AIChatPanel({ planSummary: _planSummary }: { planSummary: string | null }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -462,7 +462,7 @@ function AIChatPanel({ planSummary }: { planSummary: string | null }) {
   );
 }
 
-function AccountOverview({ actions, margin }: { actions: ActionItem[]; margin: { netProfit: number; totalAdSpend: number; shopifyRevenue: number; marginPercent: string } | null }) {
+function _AccountOverview({ actions, margin }: { actions: ActionItem[]; margin: { netProfit: number; totalAdSpend: number; shopifyRevenue: number; marginPercent: string } | null }) {
   const kills = actions.filter(a => a.type === 'KILL');
   const scales = actions.filter(a => a.type === 'SCALE');
   const watches = actions.filter(a => a.type === 'WATCH');

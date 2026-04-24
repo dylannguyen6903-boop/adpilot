@@ -1,7 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-
 interface TimeframeSelectorProps {
   value: number;
   onChange: (days: number) => void;

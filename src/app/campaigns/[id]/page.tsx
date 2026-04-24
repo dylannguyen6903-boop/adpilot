@@ -47,13 +47,15 @@ const tooltipStyle = {
   fontSize: 13,
 };
 
+const _initNow = Date.now();
+const _sevenDaysAgo = new Date(_initNow - 7 * 86400000).toISOString().split('T')[0];
+const _today = new Date(_initNow).toISOString().split('T')[0];
+
 export default function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-  const today = new Date().toISOString().split('T')[0];
 
   const { data, loading } = useApiData<InsightsResponse>(
-    `/api/facebook/insights?from=${sevenDaysAgo}&to=${today}&campaign_id=${id}`
+    `/api/facebook/insights?from=${_sevenDaysAgo}&to=${_today}&campaign_id=${id}`
   );
 
   const insights = data?.insights || [];

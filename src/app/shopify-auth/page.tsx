@@ -13,26 +13,18 @@ export default function ShopifyAuthPage() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const shop = params.get('shop') || 'frenzidea.myshopify.com';
-    
-    // Retrieve stored credentials from localStorage
-    const clientId = localStorage.getItem('shopify_client_id');
-    const clientSecret = localStorage.getItem('shopify_client_secret');
 
-    if (code && clientId && clientSecret && shop) {
-      // Exchange code for token (Calling from client is fine for temporary auth, though strictly Shopify expects server-to-server. Assuming CORS allows it or hitting our own proxy)
-      // Actually, hitting Shopify from client MIGHT throw CORS. We'll use a local API route to proxy.
+    if (code && shop) {
+      // Exchange code for token via server — credentials are stored server-side
       fetch('/api/shopify/exchange', {
         method: 'POST',
         headers: apiHeaders(),
-        body: JSON.stringify({ shop, code, clientId, clientSecret })
+        body: JSON.stringify({ shop, code })
       })
       .then(res => res.json())
       .then(data => {
         if (data.access_token) {
           setAccessToken(data.access_token);
-          // Clean up
-          localStorage.removeItem('shopify_client_id');
-          localStorage.removeItem('shopify_client_secret');
           window.history.replaceState({}, '', '/shopify-auth');
         } else {
           setErrorMsg(data.error || 'Failed to exchange token');
@@ -42,21 +34,30 @@ export default function ShopifyAuthPage() {
     }
   }, []);
 
-  const handleStartAuth = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleStartAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const clientId = fd.get('client_id') as string;
     const secret = fd.get('clientSecret') as string;
     const shop = fd.get('shop') as string || 'frenzidea.myshopify.com';
     
-    // Save to localStorage so we can use them after Shopify redirects back
-    localStorage.setItem('shopify_client_id', clientId);
-    localStorage.setItem('shopify_client_secret', secret);
-    
-    const redirectUri = `http://localhost:3000/shopify-auth`;
-    
-    // Redirect to Shopify
-    window.location.href = `https://${shop}/admin/oauth/authorize?client_id=${clientId}&scope=read_orders,read_products,read_customers&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    try {
+      // Send credentials to server — never stored in browser
+      const res = await fetch('/api/shopify/auth-start', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ clientId, clientSecret: secret, shop }),
+      });
+      const data = await res.json();
+      
+      if (data.authorizeUrl) {
+        window.location.href = data.authorizeUrl;
+      } else {
+        setErrorMsg(data.error || 'Failed to start OAuth');
+      }
+    } catch (err) {
+      setErrorMsg(String(err));
+    }
   };
 
   return (

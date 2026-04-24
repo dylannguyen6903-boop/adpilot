@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     }
 
     return await generateAndReturnPlan(date, days);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Plan generation failed.' },
       { status: 500 }
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     }
 
     return await generateAndReturnPlan(today, days);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Plan generation failed.' },
       { status: 500 }
@@ -476,3 +476,4 @@ async function generateAndReturnPlan(date: string, days: number) {
     cached: false,
   });
 }
+

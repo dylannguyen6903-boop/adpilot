@@ -24,8 +24,6 @@ import {
   type EvalCampaignData,
   type EvalConfig,
   type CampaignEvaluation,
-  type LifecyclePhase,
-  type CampType,
 } from './evaluator';
 import {
   getScaleRecommendation,

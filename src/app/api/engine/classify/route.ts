@@ -151,10 +151,11 @@ export async function POST() {
       dailyMargin: marginResult.marginPercent,
       marginStatus: marginResult.marginStatus,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Classification failed.' },
       { status: 500 }
     );
   }
 }
+

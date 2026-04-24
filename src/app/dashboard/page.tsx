@@ -70,12 +70,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DashboardPage() {
   const [days, setDays] = useState(1);
-  const today = new Date().toISOString().split('T')[0];
-  const fromDate = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+  const [today] = useState(() => new Date().toISOString().split('T')[0]);
+  const [fromDate] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
 
   const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}`);
   const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}`);
-  const { data: insightsData, error: insightsError } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}`);
+  const { data: insightsData, error: _insightsError } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}`);
 
   // Check for critical API failures
   const coreErrors = [marginError, campaignsError].filter(Boolean);
@@ -136,7 +136,6 @@ export default function DashboardPage() {
   // Margin banner
   const marginClass = margin?.marginStatus === 'CRITICAL' ? 'critical'
     : margin?.marginStatus === 'HEALTHY' ? 'healthy' : 'on-target';
-  const marginIcon = '';
 
   const timeframeLabel = days === 1 ? 'Hôm nay' : `${days} ngày qua`;
 

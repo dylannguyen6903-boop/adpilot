@@ -240,7 +240,7 @@ function scorePurchaseConsistency(daysWithPurchases: number): number {
 export function calculateFunnelHealth(
   data: EvalCampaignData,
   campType: CampType,
-  config: EvalConfig
+  _config: EvalConfig
 ): number {
   const ctr = scoreCTR(data.avgCTR7d || data.ctr);
   const atcRate = scoreATCRate(data.atc7d || data.addToCart, data.clicks);

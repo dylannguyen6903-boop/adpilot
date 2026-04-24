@@ -48,10 +48,11 @@ export async function GET(request: NextRequest) {
       insights: data || [],
       count: data?.length || 0,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to load insights.' },
       { status: 500 }
     );
   }
 }
+

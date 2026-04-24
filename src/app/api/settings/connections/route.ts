@@ -114,7 +114,7 @@ export async function PUT(request: NextRequest) {
           if (isNewToken) {
             // Only validate genuinely NEW tokens — don't re-validate existing ones
             const fbValidation = await validateFacebookToken(account.accessToken);
-            (validationResults.facebook as any[]).push({
+            (validationResults.facebook as Record<string, unknown>[]).push({
               ...account, valid: fbValidation.valid, error: fbValidation.error, isNew: true,
             });
 
@@ -125,7 +125,7 @@ export async function PUT(request: NextRequest) {
             }
           } else {
             // Existing token — skip validation, allow removals/reorders
-            (validationResults.facebook as any[]).push({
+            (validationResults.facebook as Record<string, unknown>[]).push({
               ...account, valid: true, isNew: false,
             });
           }
@@ -209,10 +209,11 @@ export async function PUT(request: NextRequest) {
       validationResults,
       message: 'Connections updated successfully.',
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to save connections.' },
       { status: 500 }
     );
   }
 }
+

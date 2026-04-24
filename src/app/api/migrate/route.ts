@@ -25,7 +25,7 @@ export async function POST() {
   // by attempting to query them. If they don't exist, we'll need the Dashboard SQL editor.
   
   // Test if new columns are readable
-  const { data: testSnap, error: testErr } = await supabaseAdmin
+  const { error: testErr } = await supabaseAdmin
     .from('campaign_snapshots')
     .select('fb_status, effective_status, campaign_created_time')
     .limit(1);
@@ -60,3 +60,4 @@ export async function POST() {
     results,
   });
 }
+

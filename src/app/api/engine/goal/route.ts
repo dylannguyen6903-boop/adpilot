@@ -146,10 +146,11 @@ export async function GET() {
       goal: breakdown,
       date: today,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Goal calculation failed.' },
       { status: 500 }
     );
   }
 }
+

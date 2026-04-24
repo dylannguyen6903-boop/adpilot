@@ -44,11 +44,13 @@ export function useApiData<T>(
     }
   }, [url]);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- fetchData is async, setState happens in callback not synchronously */
   useEffect(() => {
     if (options?.autoFetch !== false) {
       fetchData();
     }
   }, [fetchData, options?.autoFetch]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Optional polling
   useEffect(() => {

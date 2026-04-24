@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch raw snapshots in range
     // IMPORTANT: Avoid Supabase 1000-row limit for large accounts
-    let query = supabaseAdmin
+    const query = supabaseAdmin
       .from('campaign_snapshots')
       .select('*')
       .gte('snapshot_date', fromDate)
@@ -179,10 +179,11 @@ export async function GET(request: NextRequest) {
       campaigns: filtered,
       count: filtered.length,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to load campaigns.' },
       { status: 500 }
     );
   }
 }
+
