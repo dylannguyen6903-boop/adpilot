@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday } from '@/lib/timezone';
+import { BIZ_DEFAULTS } from '@/lib/businessDefaults';
 
 /**
  * GET /api/engine/brief
@@ -43,8 +44,8 @@ export async function GET() {
       .limit(1)
       .single();
 
-    const cogsRate = profile?.avg_cogs_rate ?? 0.32;
-    const monthlyTarget = profile?.monthly_profit_target ?? 15000;
+    const cogsRate = profile?.avg_cogs_rate ?? BIZ_DEFAULTS.COGS_RATE;
+    const monthlyTarget = profile?.monthly_profit_target ?? BIZ_DEFAULTS.MONTHLY_PROFIT_TARGET;
 
     // 3. Parallel queries
     const [snapshotsRes, financialsRes, mtdFinancialsRes] = await Promise.all([

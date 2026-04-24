@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { BIZ_DEFAULTS } from '@/lib/businessDefaults';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,17 +82,17 @@ export async function PUT(request: NextRequest) {
         .insert({
           store_name: body.storeName || 'Frenzidea',
           store_url: body.storeUrl,
-          target_margin_min: body.targetMarginMin ?? 0.17,
-          target_margin_max: body.targetMarginMax ?? 0.20,
-          avg_cogs_rate: body.avgCogsRate ?? 0.20,
-          target_cpa: body.targetCpa ?? 40,
-          aov: body.aov ?? 86,
+          target_margin_min: body.targetMarginMin ?? BIZ_DEFAULTS.TARGET_MARGIN_MIN,
+          target_margin_max: body.targetMarginMax ?? BIZ_DEFAULTS.TARGET_MARGIN_MAX,
+          avg_cogs_rate: body.avgCogsRate ?? BIZ_DEFAULTS.COGS_RATE,
+          target_cpa: body.targetCpa ?? BIZ_DEFAULTS.TARGET_CPA,
+          aov: body.aov ?? BIZ_DEFAULTS.AOV,
           returning_rate: body.returningRate ?? 0.22,
           avg_repeat_orders: body.avgRepeatOrders ?? 1.5,
           threshold_winner: body.thresholdWinner ?? 0.7,
           threshold_promising: body.thresholdPromising ?? 0.4,
           threshold_watch: body.thresholdWatch ?? 0.2,
-          monthly_profit_target: body.monthlyProfitTarget ?? 15000,
+          monthly_profit_target: body.monthlyProfitTarget ?? BIZ_DEFAULTS.MONTHLY_PROFIT_TARGET,
           ai_provider: body.aiProvider || 'openai',
           ai_api_key: body.aiApiKey || null,
           ai_model: body.aiModel || 'gpt-4o-mini',

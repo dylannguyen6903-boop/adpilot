@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { calculateDailyMargin } from '@/engine/margin';
 import { getAdAccountToday } from '@/lib/timezone';
+import { BIZ_DEFAULTS } from '@/lib/businessDefaults';
 
 /**
  * GET /api/engine/margin
@@ -91,7 +92,7 @@ export async function GET(request: Request) {
     const marginConfig = {
       targetMarginMin: profile?.target_margin_min ?? 0.17,
       targetMarginMax: profile?.target_margin_max ?? 0.20,
-      avgCogsRate: profile?.avg_cogs_rate ?? 0.32,
+      avgCogsRate: profile?.avg_cogs_rate ?? BIZ_DEFAULTS.COGS_RATE,
     };
 
     const result = calculateDailyMargin(shopifyRevenue, totalAdSpend, marginConfig);

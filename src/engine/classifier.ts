@@ -79,7 +79,7 @@ const DEFAULT_CONFIG: ClassifierConfig = {
   aov: 87,
   targetMarginMin: 0.17,
   targetMarginMax: 0.20,
-  avgCogsRate: 0.80,
+  avgCogsRate: 0.32,
   thresholdWinner: 0.7,
   thresholdPromising: 0.4,
   thresholdWatch: 0.2,

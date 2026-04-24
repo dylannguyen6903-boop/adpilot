@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { classifyAllCampaigns, type CampaignInput } from '@/engine/classifier';
 import { calculateDailyMargin } from '@/engine/margin';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
+import { BIZ_DEFAULTS } from '@/lib/businessDefaults';
 
 /**
  * POST /api/engine/classify
@@ -73,9 +74,9 @@ export async function POST() {
       .single();
 
     const marginResult = calculateDailyMargin(shopifyRevenue, totalAdSpend, {
-      targetMarginMin: profile?.target_margin_min ?? 0.17,
-      targetMarginMax: profile?.target_margin_max ?? 0.20,
-      avgCogsRate: profile?.avg_cogs_rate ?? 0.80,
+      targetMarginMin: profile?.target_margin_min ?? BIZ_DEFAULTS.TARGET_MARGIN_MIN,
+      targetMarginMax: profile?.target_margin_max ?? BIZ_DEFAULTS.TARGET_MARGIN_MAX,
+      avgCogsRate: profile?.avg_cogs_rate ?? BIZ_DEFAULTS.COGS_RATE,
     });
 
     // 6. Build classifier inputs
@@ -107,14 +108,14 @@ export async function POST() {
     const results = classifyAllCampaigns(campaignInputs, marginResult.dailyMargin, {
       returningRate: profile?.returning_rate ?? 0.22,
       avgRepeatOrders: profile?.avg_repeat_orders ?? 1.5,
-      aov: profile?.aov ?? 87,
-      targetMarginMin: profile?.target_margin_min ?? 0.17,
-      targetMarginMax: profile?.target_margin_max ?? 0.20,
-      avgCogsRate: profile?.avg_cogs_rate ?? 0.80,
+      aov: profile?.aov ?? BIZ_DEFAULTS.AOV,
+      targetMarginMin: profile?.target_margin_min ?? BIZ_DEFAULTS.TARGET_MARGIN_MIN,
+      targetMarginMax: profile?.target_margin_max ?? BIZ_DEFAULTS.TARGET_MARGIN_MAX,
+      avgCogsRate: profile?.avg_cogs_rate ?? BIZ_DEFAULTS.COGS_RATE,
       thresholdWinner: profile?.threshold_winner ?? 0.7,
       thresholdPromising: profile?.threshold_promising ?? 0.4,
       thresholdWatch: profile?.threshold_watch ?? 0.2,
-      targetCpa: profile?.target_cpa ?? 40,
+      targetCpa: profile?.target_cpa ?? BIZ_DEFAULTS.TARGET_CPA,
       benchmarkCtr: 2.0,
     });
 

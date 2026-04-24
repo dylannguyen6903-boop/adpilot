@@ -4,6 +4,7 @@ import { generateActionPlanV2, type CampaignData, type PlannerConfig } from '@/e
 import { calculateDailyMargin } from '@/engine/margin';
 import { calculateGoalBreakdown, type GoalConfig, type ActualMetrics, type CampaignForGoal } from '@/engine/goalEngine';
 import { getAdAccountToday } from '@/lib/timezone';
+import { BIZ_DEFAULTS } from '@/lib/businessDefaults';
 
 export const maxDuration = 300; // 5 minutes for Vercel Pro
 
@@ -212,11 +213,11 @@ async function generateAndReturnPlan(date: string, days: number) {
     .single();
 
   const plannerConfig: PlannerConfig = {
-    targetCpa: profile?.target_cpa ?? 40,
-    targetMarginMin: profile?.target_margin_min ?? 0.17,
-    targetMarginMax: profile?.target_margin_max ?? 0.20,
-    avgCogsRate: profile?.avg_cogs_rate ?? 0.20,
-    aov: profile?.aov ?? 86,
+    targetCpa: profile?.target_cpa ?? BIZ_DEFAULTS.TARGET_CPA,
+    targetMarginMin: profile?.target_margin_min ?? BIZ_DEFAULTS.TARGET_MARGIN_MIN,
+    targetMarginMax: profile?.target_margin_max ?? BIZ_DEFAULTS.TARGET_MARGIN_MAX,
+    avgCogsRate: profile?.avg_cogs_rate ?? BIZ_DEFAULTS.COGS_RATE,
+    aov: profile?.aov ?? BIZ_DEFAULTS.AOV,
     returningRate: profile?.returning_rate ?? 0.22,
     avgRepeatOrders: profile?.avg_repeat_orders ?? 1.5,
   };

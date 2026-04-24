@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { allocateBudget, type AllocatorCampaignInput } from '@/engine/allocator';
 import type { CampaignStatus } from '@/types/campaign';
 import { getAdAccountToday } from '@/lib/timezone';
+import { BIZ_DEFAULTS } from '@/lib/businessDefaults';
 
 /**
  * POST /api/budget/simulate
@@ -56,13 +57,13 @@ export async function POST(request: Request) {
       allocateBudget(campaigns, {
         totalDailyBudget: budget,
         marginConfig: {
-          targetMarginMin: profile?.target_margin_min ?? 0.17,
-          targetMarginMax: profile?.target_margin_max ?? 0.20,
-          avgCogsRate: profile?.avg_cogs_rate ?? 0.80,
+          targetMarginMin: profile?.target_margin_min ?? BIZ_DEFAULTS.TARGET_MARGIN_MIN,
+          targetMarginMax: profile?.target_margin_max ?? BIZ_DEFAULTS.TARGET_MARGIN_MAX,
+          avgCogsRate: profile?.avg_cogs_rate ?? BIZ_DEFAULTS.COGS_RATE,
         },
         currentRevenue: financial?.shopify_revenue || 0,
         currentTotalSpend: totalSpend,
-        aov: profile?.aov ?? 87,
+        aov: profile?.aov ?? BIZ_DEFAULTS.AOV,
       })
     );
 

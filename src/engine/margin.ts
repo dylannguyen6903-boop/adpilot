@@ -41,7 +41,7 @@ export interface CampaignMarginResult {
 const DEFAULT_CONFIG: MarginConfig = {
   targetMarginMin: 0.17,
   targetMarginMax: 0.20,
-  avgCogsRate: 0.80,
+  avgCogsRate: 0.32,
 };
 
 /**
