@@ -129,9 +129,21 @@ export async function GET() {
       };
     });
 
-    // 5. Yesterday vs day before
-    const yesterday = daily.length >= 1 ? daily[daily.length - 1] : null;
-    const dayBefore = daily.length >= 2 ? daily[daily.length - 2] : null;
+    // 5. Explicit date-based lookup for today/yesterday/dayBefore
+    //    anchorDate = ad account "today" (or latest date with data)
+    const yesterdayDate = new Date(
+      new Date(anchorDate).getTime() - 1 * 86400000
+    ).toISOString().split('T')[0];
+    const dayBeforeDate = new Date(
+      new Date(anchorDate).getTime() - 2 * 86400000
+    ).toISOString().split('T')[0];
+
+    const todayData = daily.find(d => d.date === anchorDate) || null;
+    const yesterday = daily.find(d => d.date === yesterdayDate) || null;
+    const dayBefore = daily.find(d => d.date === dayBeforeDate) || null;
+
+    // Check if today's data is partial (only has spend but very early in ad account day)
+    const isTodayPartial = todayData ? (todayData.spend > 0 && todayData.revenue === 0) : true;
 
     // 6. MTD — full query for spend (may extend beyond 7-day window)
     const { data: mtdSnapshots } = await supabaseAdmin
@@ -155,21 +167,21 @@ export async function GET() {
     ).getDate();
     const daysRemaining = daysInMonth - dayOfMonth;
 
-    // 7. Forecast
-    const profitDays = daily.filter(d => d.revenue > 0 || d.spend > 0);
-    const avgDailyProfit7d = profitDays.length > 0
-      ? profitDays.reduce((s, d) => s + d.profit, 0) / profitDays.length
+    // 7. Forecast — use yesterday for avg (complete data), not today (partial)
+    const completeDays = daily.filter(d => d.date !== anchorDate && (d.revenue > 0 || d.spend > 0));
+    const avgDailyProfit7d = completeDays.length > 0
+      ? completeDays.reduce((s, d) => s + d.profit, 0) / completeDays.length
       : 0;
     const projectedMonthEnd = mtdProfit + avgDailyProfit7d * daysRemaining;
     const gap = monthlyTarget - projectedMonthEnd;
     const dailyNeeded = daysRemaining > 0 ? (monthlyTarget - mtdProfit) / daysRemaining : 0;
 
     // 8. Alerts (max 3, sorted by severity)
-    // Scenarios & TODOs are now calculated client-side from Plan engine actions
+    // Use YESTERDAY data for alerts (complete day), not today (partial)
     const alerts: Array<{ type: 'danger' | 'warning' | 'info'; message: string; priority: number }> = [];
 
     if (yesterday && yesterday.profit < 0) {
-      alerts.push({ type: 'danger', message: `Hôm qua LỖ $${Math.abs(yesterday.profit).toFixed(0)}`, priority: 1 });
+      alerts.push({ type: 'danger', message: `Hôm qua (${yesterdayDate}) LỖ $${Math.abs(yesterday.profit).toFixed(0)}`, priority: 1 });
     }
     if (projectedMonthEnd < monthlyTarget) {
       alerts.push({ type: 'danger', message: `Dự báo cuối tháng: $${projectedMonthEnd.toFixed(0)} — thiếu $${gap.toFixed(0)} so với target`, priority: 2 });
@@ -189,6 +201,8 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       date: anchorDate,
+      today: todayData,
+      isTodayPartial,
       yesterday,
       dayBefore,
       daily,

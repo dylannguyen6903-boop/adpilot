@@ -72,34 +72,37 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
       }
 
       if (fbOk && shopifyOk) {
-        setSyncResult('Đồng bộ thành công');
+        setSyncResult('✅ Đồng bộ thành công');
         setSyncError(null);
         setErrorDismissed(false);
+        // Only reload on success — wait for user to see the success message
+        setTimeout(() => window.location.reload(), 1500);
       } else if (fbOk || shopifyOk) {
-        setSyncResult('Đồng bộ một phần');
+        setSyncResult('⚠️ Đồng bộ một phần');
         setSyncError({
           lastSync: new Date().toISOString(),
           status: 'PARTIAL',
           error: errorDetail || (!fbOk ? 'Lỗi đồng bộ Facebook' : 'Lỗi đồng bộ Shopify'),
         });
         setErrorDismissed(false);
+        // Still reload on partial — some data was updated
+        setTimeout(() => window.location.reload(), 2500);
       } else {
-        setSyncResult('Đồng bộ thất bại');
+        setSyncResult('❌ Đồng bộ thất bại');
         setSyncError({
           lastSync: new Date().toISOString(),
           status: 'FAILED',
           error: errorDetail || 'Lỗi đồng bộ Facebook và Shopify. Kiểm tra API token.',
         });
         setErrorDismissed(false);
+        // Do NOT reload on total failure — let user see the error
       }
-
-      // Auto-reload page data after sync
-      setTimeout(() => window.location.reload(), 2000);
     } catch (err) {
       console.error('Sync error:', err);
-      setSyncResult('Lỗi');
+      setSyncResult('❌ Lỗi kết nối');
+      // Do NOT reload on network error
     } finally {
-      setTimeout(() => setSyncing(false), 1000);
+      setSyncing(false);
     }
   };
 

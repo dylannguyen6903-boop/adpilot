@@ -65,7 +65,7 @@ export default function Sidebar() {
       <div className="sidebar-footer">
         <div className="sidebar-sync-status">
           <span className="sidebar-sync-dot" />
-          <span>Tự động đồng bộ: 4h</span>
+          <span>Bấm ↻ để đồng bộ</span>
         </div>
       </div>
     </aside>

@@ -146,7 +146,7 @@ function GoalProgressBar({ goal }: { goal: GoalBreakdown }) {
   );
 }
 
-function DailyKPIs({ goal, margin }: { goal: GoalBreakdown; margin: PlanResponse['margin'] }) {
+function DailyKPIs({ goal, margin, dateMode = 'today' }: { goal: GoalBreakdown; margin: PlanResponse['margin']; dateMode?: 'today' | 'yesterday' }) {
   const netProfit = margin?.netProfit ?? 0;
   const adSpend = margin?.totalAdSpend ?? goal.actual.todayAdSpend;
   const todayCpa = goal.actual.todayOrders > 0 ? adSpend / goal.actual.todayOrders : null;
@@ -154,14 +154,14 @@ function DailyKPIs({ goal, margin }: { goal: GoalBreakdown; margin: PlanResponse
   return (
     <div className="kpi-grid mb-lg">
       <div className="card kpi-card" id="kpi-daily-profit">
-        <div className="card-title">Profit hôm nay</div>
+        <div className="card-title">{dateMode === 'yesterday' ? 'Profit hôm qua' : 'Profit hôm nay'}</div>
         <div className="card-value" style={{ color: profitColor }}>
           {formatCurrency(netProfit)}
         </div>
         <div className="card-subtitle">Target: {formatCurrency(goal.dailyProfitTarget)}/ngày</div>
       </div>
       <div className="card kpi-card" id="kpi-daily-orders">
-        <div className="card-title">Orders hôm nay</div>
+        <div className="card-title">{dateMode === 'yesterday' ? 'Orders hôm qua' : 'Orders hôm nay'}</div>
         <div className="card-value">{goal.actual.todayOrders}</div>
         <div className="card-subtitle">Cần: {goal.dailyOrdersNeeded}/ngày</div>
       </div>
@@ -173,7 +173,7 @@ function DailyKPIs({ goal, margin }: { goal: GoalBreakdown; margin: PlanResponse
         <div className="card-subtitle">Profit/đơn: {formatCurrency(goal.profitPerOrder)}</div>
       </div>
       <div className="card kpi-card" id="kpi-daily-spend">
-        <div className="card-title">Ad Spend hôm nay</div>
+        <div className="card-title">{dateMode === 'yesterday' ? 'Ad Spend hôm qua' : 'Ad Spend hôm nay'}</div>
         <div className="card-value">{formatCurrency(adSpend)}</div>
         <div className="card-subtitle">Đề xuất: {formatCurrency(goal.dailyAdBudgetNeeded)}/ngày</div>
       </div>
@@ -557,9 +557,22 @@ export default function ActionPlanPage() {
   });
 
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [dateMode, setDateMode] = useState<'today' | 'yesterday'>('today');
   const { accounts } = useApiData<{ connections: { facebook: { accounts: { id: string; name?: string; adAccountId: string }[] } } }>('/api/settings/connections').data?.connections?.facebook || { accounts: [] };
 
-  const queryUrl = `/api/engine/plan?days=${days}&force=true${selectedAccount ? `&ad_account_id=${selectedAccount}` : ''}`;
+  // Calculate yesterday in ad account timezone (GMT-7)
+  // Server will handle exact timezone; we approximate for the query
+  const getYesterdayDate = () => {
+    const now = new Date();
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    const adAccountMs = utcMs + (-7) * 3600000; // GMT-7
+    const adToday = new Date(adAccountMs);
+    adToday.setDate(adToday.getDate() - 1);
+    return adToday.toISOString().split('T')[0];
+  };
+
+  const dateParam = dateMode === 'yesterday' ? `&date=${getYesterdayDate()}` : '';
+  const queryUrl = `/api/engine/plan?days=${days}&force=true${dateParam}${selectedAccount ? `&ad_account_id=${selectedAccount}` : ''}`;
   const { data, loading, refetch } = useApiData<PlanResponse>(queryUrl);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -586,6 +599,38 @@ export default function ActionPlanPage() {
   return (
     <>
       <Header title="Kế hoạch Hành động" subtitle={`${today}`}>
+        {/* Date toggle: Today / Yesterday */}
+        <div style={{ display: 'flex', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-primary)' }}>
+          <button
+            onClick={() => setDateMode('today')}
+            style={{
+              padding: 'var(--space-xs) var(--space-sm)',
+              fontSize: 'var(--text-xs)',
+              fontWeight: 600,
+              background: dateMode === 'today' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+              color: dateMode === 'today' ? '#fff' : 'var(--text-secondary)',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Hôm nay
+          </button>
+          <button
+            onClick={() => setDateMode('yesterday')}
+            style={{
+              padding: 'var(--space-xs) var(--space-sm)',
+              fontSize: 'var(--text-xs)',
+              fontWeight: 600,
+              background: dateMode === 'yesterday' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+              color: dateMode === 'yesterday' ? '#fff' : 'var(--text-secondary)',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Hôm qua
+          </button>
+        </div>
+
         {accounts && accounts.length > 0 && (
           <select 
             className="form-input" 
@@ -622,7 +667,7 @@ export default function ActionPlanPage() {
             {goal && <GoalProgressBar goal={goal} />}
 
             {/* Section 2: Daily KPIs */}
-            {goal && <DailyKPIs goal={goal} margin={data?.margin ?? null} />}
+            {goal && <DailyKPIs goal={goal} margin={data?.margin ?? null} dateMode={dateMode} />}
 
             {/* Section 3: Campaign Actions */}
             {actionKill.length > 0 && (

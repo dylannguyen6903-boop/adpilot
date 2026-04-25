@@ -48,6 +48,8 @@ interface Scenario {
 interface BriefData {
   success: boolean;
   date: string;
+  today: DailyMetric | null;
+  isTodayPartial: boolean;
   yesterday: DailyMetric | null;
   dayBefore: DailyMetric | null;
   daily: DailyMetric[];
@@ -244,7 +246,15 @@ export default function MorningBrief({ planActions = [] }: { planActions?: PlanA
 
   if (!data?.success) return null;
 
-  const { yesterday, dayBefore, daily, mtd, forecast, alerts } = data;
+  const { today: todayData, isTodayPartial, yesterday, dayBefore, daily, mtd, forecast, alerts } = data;
+
+  // Format dates for display
+  const yesterdayLabel = yesterday?.date
+    ? new Date(yesterday.date).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' })
+    : '';
+  const todayLabel = todayData?.date
+    ? new Date(todayData.date).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' })
+    : '';
 
   // Build scenarios from ACTUAL plan engine actions
   const kills = planActions.filter(a => a.type === 'KILL');
@@ -300,26 +310,31 @@ export default function MorningBrief({ planActions = [] }: { planActions?: PlanA
 
       {/* KPI Row: Yesterday | vs Day Before | MTD | Forecast */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
-        {/* Yesterday */}
+        {/* Yesterday — complete data */}
         <div style={{ padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Profit hôm qua</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Profit hôm qua {yesterdayLabel && `(${yesterdayLabel})`}</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: (yesterday?.profit ?? 0) >= 0 ? '#4ade80' : '#f87171' }}>
-            ${(yesterday?.profit ?? 0).toFixed(0)}
+            {yesterday ? `$${yesterday.profit.toFixed(0)}` : '—'}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Margin {((yesterday?.margin ?? 0) * 100).toFixed(1)}% · {yesterday?.orders ?? 0} đơn
+            {yesterday ? `Margin ${(yesterday.margin * 100).toFixed(1)}% · ${yesterday.orders} đơn` : 'Chưa có data'}
           </div>
           <ChangeIndicator current={yesterday?.profit ?? null} previous={dayBefore?.profit ?? null} />
         </div>
 
-        {/* Spend yesterday */}
+        {/* Spend yesterday — complete data */}
         <div style={{ padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Chi hôm qua</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>${(yesterday?.spend ?? 0).toFixed(0)}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Chi hôm qua {yesterdayLabel && `(${yesterdayLabel})`}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>{yesterday ? `$${yesterday.spend.toFixed(0)}` : '—'}</div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             CPA: {yesterday?.cpa ? `$${yesterday.cpa.toFixed(0)}` : '—'}
           </div>
           <ChangeIndicator current={yesterday?.spend ?? null} previous={dayBefore?.spend ?? null} invertColor />
+          {todayData && todayData.spend > 0 && (
+            <div style={{ fontSize: 10, color: '#60a5fa', marginTop: 4 }}>
+              📊 Hôm nay{todayLabel && ` (${todayLabel})`}: ${todayData.spend.toFixed(0)}{isTodayPartial ? ' ⏳' : ''}
+            </div>
+          )}
         </div>
 
         {/* MTD */}
