@@ -2,17 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-/** Shared headers for all API requests — includes auth key */
+/** Shared headers for all API requests */
 function apiHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
-  // Add API key if configured (NEXT_PUBLIC_ so it's available in browser)
-  const apiKey = process.env.NEXT_PUBLIC_ADPILOT_API_KEY;
-  if (apiKey) {
-    headers['x-api-key'] = apiKey;
-  }
+  // Auth cookie is sent automatically by the browser (HttpOnly, same-origin).
+  // No need to attach API keys in browser context.
 
   return { ...headers, ...extra };
 }
