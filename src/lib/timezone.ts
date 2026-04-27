@@ -14,26 +14,34 @@ const AD_ACCOUNT_UTC_OFFSET = -7; // GMT-7 (US Pacific / Mountain)
 
 /**
  * Get the current date in the ad account's timezone.
- * Example: If server is UTC+7 and it's 6am Apr 21 in VN,
- *          the ad account (UTC-7) sees 4pm Apr 20.
+ * 
+ * IMPORTANT: Date.getTime() already returns UTC milliseconds.
+ * We only need to shift by the ad account offset - NOT by getTimezoneOffset().
+ * Previous code double-subtracted when running in non-UTC environments.
  */
 export function getAdAccountToday(): string {
   const now = new Date();
-  // Convert to UTC, then apply ad account offset
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-  const adAccountMs = utcMs + AD_ACCOUNT_UTC_OFFSET * 3600000;
+  // getTime() is already UTC ms - just shift by ad account offset
+  const adAccountMs = now.getTime() + AD_ACCOUNT_UTC_OFFSET * 3600000;
   const adAccountDate = new Date(adAccountMs);
-  return adAccountDate.toISOString().split('T')[0];
+  // Use UTC methods to extract date parts to avoid local timezone interference
+  const y = adAccountDate.getUTCFullYear();
+  const m = String(adAccountDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(adAccountDate.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /**
  * Get a date N days before the ad account's "today".
  */
 export function getAdAccountDateMinusDays(days: number): string {
-  const today = getAdAccountToday();
-  const d = new Date(today);
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
+  const now = new Date();
+  const adAccountMs = now.getTime() + AD_ACCOUNT_UTC_OFFSET * 3600000;
+  const shifted = new Date(adAccountMs - days * 86400000);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /**
@@ -41,9 +49,8 @@ export function getAdAccountDateMinusDays(days: number): string {
  */
 export function getAdAccountHour(): number {
   const now = new Date();
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-  const adAccountMs = utcMs + AD_ACCOUNT_UTC_OFFSET * 3600000;
-  return new Date(adAccountMs).getHours();
+  const adAccountMs = now.getTime() + AD_ACCOUNT_UTC_OFFSET * 3600000;
+  return new Date(adAccountMs).getUTCHours();
 }
 
 /**
@@ -64,5 +71,8 @@ export function convertToAdAccountDate(utcTimestamp: string): string {
   // Shift to ad account timezone
   const adAccountMs = d.getTime() + AD_ACCOUNT_UTC_OFFSET * 3600000;
   const adDate = new Date(adAccountMs);
-  return adDate.toISOString().split('T')[0];
+  const y = adDate.getUTCFullYear();
+  const m = String(adDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(adDate.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
