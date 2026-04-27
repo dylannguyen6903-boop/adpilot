@@ -5,6 +5,7 @@ import { Header, PageContainer } from '@/components/layout';
 import TimeframeSelector from '@/components/shared/TimeframeSelector';
 import { useApiData, useAdAccounts } from '@/hooks/useApi';
 import { formatCurrency, formatPercent, formatRoas, formatNumber } from '@/lib/utils';
+import { getAdAccountDateMinusDays } from '@/lib/timezone';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -69,16 +70,22 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const [days, setDays] = useState(1);
+  const [timeframe, setTimeframe] = useState('1');
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [today] = useState(() => new Date().toISOString().split('T')[0]);
   const [fromDate] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
 
   const { accounts } = useAdAccounts();
 
+  // Compute API params from timeframe
+  const isYesterday = timeframe === 'yesterday';
+  const days = isYesterday ? 1 : parseInt(timeframe, 10);
+  const yesterdayDate = getAdAccountDateMinusDays(1);
+  const dateParam = isYesterday ? `&date=${yesterdayDate}` : '';
+
   const qsAccount = selectedAccount ? `&ad_account_id=${selectedAccount}` : '';
-  const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}${qsAccount}`);
-  const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}${qsAccount}`);
+  const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}${dateParam}${qsAccount}`);
+  const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}${dateParam}${qsAccount}`);
   const { data: insightsData, error: _insightsError } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}${qsAccount}`);
 
   // Check for critical API failures
@@ -141,7 +148,7 @@ export default function DashboardPage() {
   const marginClass = margin?.marginStatus === 'CRITICAL' ? 'critical'
     : margin?.marginStatus === 'HEALTHY' ? 'healthy' : 'on-target';
 
-  const timeframeLabel = days === 1 ? 'Hôm nay' : `${days} ngày qua`;
+  const timeframeLabel = isYesterday ? 'Hôm qua' : days === 1 ? 'Hôm nay' : `${days} ngày qua`;
 
   return (
     <>
@@ -161,7 +168,7 @@ export default function DashboardPage() {
             ))}
           </select>
         )}
-        <TimeframeSelector value={days} onChange={setDays} />
+        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
       </Header>
       <PageContainer>
         {/* Data Error Alert — shown when core APIs fail */}

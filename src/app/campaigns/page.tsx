@@ -7,6 +7,7 @@ import TimeframeSelector from '@/components/shared/TimeframeSelector';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { useApiData, useAdAccounts } from '@/hooks/useApi';
 import { formatCurrency, formatPercent } from '@/lib/utils';
+import { getAdAccountDateMinusDays } from '@/lib/timezone';
 import type { CampaignStatus } from '@/types/campaign';
 
 interface CampaignSnapshot {
@@ -49,18 +50,25 @@ const STATUS_FILTERS: Array<{ value: CampaignStatus | 'ALL'; label: string; icon
 type SortKey = 'spend' | 'conversions' | 'cpa' | 'ctr' | 'performance_score';
 
 export default function CampaignsPage() {
-  const [days, setDays] = useState(1);
+  const [timeframe, setTimeframe] = useState('1');
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | 'ALL'>('ALL');
   const [sortKey, setSortKey] = useState<SortKey>('spend');
   const [sortAsc, setSortAsc] = useState(false);
 
   const { accounts } = useAdAccounts();
+
+  // Compute API params from timeframe
+  const isYesterday = timeframe === 'yesterday';
+  const days = isYesterday ? 1 : parseInt(timeframe, 10);
+  const yesterdayDate = getAdAccountDateMinusDays(1);
+  const dateParam = isYesterday ? `&date=${yesterdayDate}` : '';
+
   const qsAccount = selectedAccount ? `&ad_account_id=${selectedAccount}` : '';
-  const { data, loading } = useApiData<CampaignsResponse>(`/api/facebook/campaigns?days=${days}${qsAccount}`);
+  const { data, loading } = useApiData<CampaignsResponse>(`/api/facebook/campaigns?days=${days}${dateParam}${qsAccount}`);
 
   const campaigns = data?.campaigns || [];
-  const timeframeLabel = days === 1 ? 'Hôm nay' : `${days} ngày qua`;
+  const timeframeLabel = isYesterday ? 'Hôm qua' : days === 1 ? 'Hôm nay' : `${days} ngày qua`;
 
   // Filter
   const filtered = statusFilter === 'ALL'
@@ -106,7 +114,7 @@ export default function CampaignsPage() {
             ))}
           </select>
         )}
-        <TimeframeSelector value={days} onChange={setDays} />
+        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
       </Header>
       <PageContainer>
         {/* Filters */}

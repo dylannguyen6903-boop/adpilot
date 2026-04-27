@@ -1,15 +1,16 @@
 'use client';
 
 interface TimeframeSelectorProps {
-  value: number;
-  onChange: (days: number) => void;
-  options?: { label: string; value: number }[];
+  value: string;
+  onChange: (value: string) => void;
+  options?: { label: string; value: string }[];
 }
 
 const DEFAULT_OPTIONS = [
-  { label: 'Hôm nay', value: 1 },
-  { label: '3N', value: 3 },
-  { label: '7N', value: 7 },
+  { label: 'Hôm nay', value: '1' },
+  { label: 'Hôm qua', value: 'yesterday' },
+  { label: '3N', value: '3' },
+  { label: '7N', value: '7' },
 ];
 
 export default function TimeframeSelector({
@@ -24,7 +25,7 @@ export default function TimeframeSelector({
           key={opt.value}
           className={`timeframe-btn ${value === opt.value ? 'active' : ''}`}
           onClick={() => onChange(opt.value)}
-          id={`timeframe-${opt.value}d`}
+          id={`timeframe-${opt.value}`}
         >
           {opt.label}
         </button>
