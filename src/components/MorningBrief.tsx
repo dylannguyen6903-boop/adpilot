@@ -30,6 +30,11 @@ interface PlanAction {
   currentCpa: number | null;
   profitPerOrder?: number | null;
   campaignName: string;
+  readinessScore?: number;
+  readinessLabel?: string;
+  blockers?: string[];
+  missingSignals?: string[];
+  recommendedNextStep?: string;
   frequency7d?: number;
   cpm7d?: number;
   ctrTrend?: string;
@@ -259,12 +264,19 @@ export default function MorningBrief({ planActions = [] }: { planActions?: PlanA
   // Build scenarios from ACTUAL plan engine actions
   const kills = planActions.filter(a => a.type === 'KILL');
   const scales = planActions.filter(a => a.type === 'SCALE' || a.type === 'LAUNCH');
+  const opportunities = planActions.filter(a => a.type === 'OPPORTUNITY');
   const killSavings = kills.reduce((s, a) => s + (a.oldBudget ?? 0), 0);
   const killSpend7d = kills.reduce((s, a) => s + (a.spend7d ?? 0), 0);
   const scaleExtra = scales.reduce((s, a) => {
     const dailyOrders = (a.conversions7d ?? 0) / 7;
     const profit = a.profitPerOrder ?? 0;
     return s + (dailyOrders * 0.14 * profit); // 20% budget → 14% more orders (0.7x)
+  }, 0);
+  const opportunityPotential = opportunities.reduce((s, a) => {
+    const dailyOrders = (a.conversions7d ?? 0) / 7;
+    const profit = a.profitPerOrder ?? 0;
+    const readinessFactor = Math.max(0.2, Math.min(0.8, (a.readinessScore ?? 60) / 100));
+    return s + (dailyOrders * 0.10 * profit * readinessFactor);
   }, 0);
   const total7dSpend = planActions.reduce((s, a) => s + (a.spend7d ?? 0), 0);
   const total7dOrders = planActions.reduce((s, a) => s + (a.conversions7d ?? 0), 0);
@@ -283,6 +295,10 @@ export default function MorningBrief({ planActions = [] }: { planActions?: PlanA
     const proj = mtd.profit + (forecast.avgDailyProfit7d + scaleExtra) * daysRem;
     scenarios.push({ id: 'scale', title: `Scale: Tăng budget ${scales.length} camp tốt nhất +20%`, description: `Ước tính thêm ~$${scaleExtra.toFixed(0)}/ngày profit (bảo thủ 0.7x)`, impact: Math.round(proj), savings: Math.round(scaleExtra), effort: 'medium' });
   }
+  if (opportunities.length > 0 && opportunityPotential > 0) {
+    const proj = mtd.profit + (forecast.avgDailyProfit7d + opportunityPotential) * daysRem;
+    scenarios.push({ id: 'opportunity', title: `Cơ hội: ${opportunities.length} camp gần đủ điều kiện scale`, description: `Chờ đủ tín hiệu còn thiếu, potential ~$${opportunityPotential.toFixed(0)}/ngày profit`, impact: Math.round(proj), savings: Math.round(opportunityPotential), effort: 'medium' });
+  }
   if (currentAvgCpa > targetCpa && cpaSavingsPerDay > 0) {
     const proj = mtd.profit + (forecast.avgDailyProfit7d + cpaSavingsPerDay) * daysRem;
     scenarios.push({ id: 'cpa', title: `Tối ưu CPA: $${currentAvgCpa.toFixed(0)} → $${targetCpa}`, description: `Nếu đạt target CPA, tiết kiệm ~$${cpaSavingsPerDay.toFixed(0)}/ngày`, impact: Math.round(proj), savings: Math.round(cpaSavingsPerDay), effort: 'high' });
@@ -292,6 +308,7 @@ export default function MorningBrief({ planActions = [] }: { planActions?: PlanA
   const todos: string[] = [];
   if (kills.length > 0) todos.push(`Tắt ${kills.length} camp lỗ → tiết kiệm $${killSavings.toFixed(0)}/ngày`);
   if (scales.length > 0) todos.push(`Tăng budget ${scales.length} camp tốt → thêm ~$${scaleExtra.toFixed(0)}/ngày`);
+  if (opportunities.length > 0) todos.push(`Theo dõi ${opportunities.length} camp tốt đang chờ scale → ${opportunities[0]?.recommendedNextStep ?? 'xem readiness score'}`);
   if (currentAvgCpa > targetCpa) todos.push(`CPA trung bình $${currentAvgCpa.toFixed(0)} > target $${targetCpa} — cần tối ưu`);
   const progressPct = Math.min(100, (mtd.profit / forecast.target) * 100);
 

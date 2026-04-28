@@ -38,7 +38,9 @@ export interface ActualMetrics {
 export interface CampaignForGoal {
   campaignId: string;
   campaignName: string;
-  status: string;                // WINNER, PROMISING, WATCH, KILL, LEARNING
+  status: string;                // SCALE_READY, OPPORTUNITY, PERFORMING, WATCH, KILL, LEARNING
+  readinessScore?: number;
+  readinessLabel?: string;
   spend: number;
   conversions: number;
   cpa: number | null;
@@ -302,17 +304,25 @@ function generateRecommendations(
     });
   }
 
-  // ── SCALE recommendations: WINNER campaigns with CPA < target ──
+  // ── SCALE recommendations: Growth readiness candidates with CPA near target ──
   const scaleCandidates = activeCampaigns
     .filter(c =>
-      (c.status === 'WINNER' || c.status === 'PROMISING') &&
+      (
+        c.status === 'SCALING' ||
+        c.status === 'SCALE_READY' ||
+        c.status === 'OPPORTUNITY' ||
+        c.status === 'PERFORMING' ||
+        c.readinessLabel === 'SCALE_READY' ||
+        c.readinessLabel === 'OPPORTUNITY'
+      ) &&
       c.cpa !== null &&
-      c.cpa < config.targetCpa
+      c.cpa <= config.targetCpa * 1.15
     )
-    .sort((a, b) => (a.cpa ?? 999) - (b.cpa ?? 999));
+    .sort((a, b) => (b.readinessScore ?? 0) - (a.readinessScore ?? 0) || (a.cpa ?? 999) - (b.cpa ?? 999));
 
   for (const camp of scaleCandidates.slice(0, 5)) {
-    const scaledBudget = Math.round(camp.dailyBudget * 1.20 * 100) / 100;
+    const changePercent = camp.dailyBudget >= 500 ? 5 : camp.dailyBudget >= 100 ? 15 : 20;
+    const scaledBudget = Math.round(camp.dailyBudget * (1 + changePercent / 100) * 100) / 100;
     const budgetIncrease = scaledBudget - camp.dailyBudget;
     // Estimate additional orders from the budget increase
     const additionalOrders = camp.cpa! > 0 ? budgetIncrease / camp.cpa! : 0;
@@ -322,10 +332,14 @@ function generateRecommendations(
       type: 'SCALE_CAMPAIGN',
       campaignId: camp.campaignId,
       campaignName: camp.campaignName,
-      description: `CPA $${camp.cpa!.toFixed(0)} tốt hơn target $${config.targetCpa}. Tăng budget +20%.`,
+      description: camp.readinessLabel === 'OPPORTUNITY'
+        ? `CPA $${camp.cpa!.toFixed(0)} nằm trong ngưỡng Growth. Theo dõi để đủ điều kiện scale +${changePercent}%.`
+        : `CPA $${camp.cpa!.toFixed(0)} nằm trong ngưỡng Growth. Có thể tăng budget +${changePercent}%.`,
       impact: `Thêm ~$${Math.max(0, Math.round(additionalProfit))}/ngày profit`,
       impactValue: Math.max(0, Math.round(additionalProfit)),
-      confidence: camp.status === 'WINNER' ? 85 : 65,
+      confidence: camp.readinessLabel === 'SCALE_READY' || camp.status === 'SCALE_READY' || camp.status === 'SCALING'
+        ? 85
+        : Math.max(55, Math.min(75, camp.readinessScore ?? 65)),
       currentBudget: camp.dailyBudget,
       suggestedBudget: scaledBudget,
       currentCpa: camp.cpa!,

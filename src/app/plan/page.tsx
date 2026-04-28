@@ -32,6 +32,11 @@ interface ActionItem {
   funnelHealth?: number;
   profitPerOrder?: number | null;
   diagnosis?: string;
+  readinessScore?: number;
+  readinessLabel?: string;
+  blockers?: string[];
+  missingSignals?: string[];
+  recommendedNextStep?: string;
   spend7d?: number;
   conversions7d?: number;
   spendToday?: number;
@@ -202,6 +207,7 @@ function LifecycleBadge({ phase }: { phase?: string }) {
 const ACTION_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   KILL: { label: 'TẮT', color: '#ef4444', icon: '🔴' },
   SCALE: { label: 'TĂNG', color: '#22c55e', icon: '🟢' },
+  OPPORTUNITY: { label: 'CƠ HỘI', color: '#eab308', icon: '🟡' },
   WATCH: { label: 'THEO DÕI', color: '#f97316', icon: '🟠' },
   REVERT: { label: 'GIẢM', color: '#f97316', icon: '⚠️' },
   LAUNCH: { label: 'MỚI', color: '#6366f1', icon: '🔵' },
@@ -253,6 +259,12 @@ function CampaignCard({ a, targetCpa }: { a: ActionItem; targetCpa: number }) {
             </div>
           </div>
         )}
+        {a.type === 'OPPORTUNITY' && a.readinessScore != null && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Readiness</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: act.color }}>{a.readinessScore}/100</div>
+          </div>
+        )}
       </div>
 
       {/* Metrics row */}
@@ -285,6 +297,39 @@ function CampaignCard({ a, targetCpa }: { a: ActionItem; targetCpa: number }) {
       {a.diagnosis && (
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 'var(--space-xs)', lineHeight: 1.4 }}>
           💡 {a.diagnosis}
+        </div>
+      )}
+
+      {a.type !== 'KILL' && (a.readinessScore != null || a.recommendedNextStep || (a.blockers && a.blockers.length > 0) || (a.missingSignals && a.missingSignals.length > 0)) && (
+        <div style={{
+          fontSize: 11,
+          padding: 'var(--space-sm)',
+          borderRadius: 'var(--radius-sm)',
+          marginBottom: 'var(--space-xs)',
+          background: a.readinessLabel === 'SCALE_BLOCKED' ? '#ef444415' : a.type === 'OPPORTUNITY' ? '#eab30815' : '#22c55e15',
+          borderLeft: `3px solid ${a.readinessLabel === 'SCALE_BLOCKED' ? '#ef4444' : a.type === 'OPPORTUNITY' ? '#eab308' : '#22c55e'}`,
+          color: 'var(--text-secondary)',
+          lineHeight: 1.5,
+        }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+            {a.readinessScore != null && <span><strong>Readiness:</strong> {a.readinessScore}/100</span>}
+            {a.frequency7d != null && <span><strong>Freq:</strong> {a.frequency7d.toFixed(1)}</span>}
+            {a.ctrTrend && <span><strong>Trend CTR:</strong> {a.ctrTrend}</span>}
+            {a.newBudget != null && a.oldBudget != null && a.type === 'OPPORTUNITY' && (
+              <span><strong>Budget nếu scale:</strong> ${a.oldBudget} → ${a.newBudget}</span>
+            )}
+          </div>
+          {a.recommendedNextStep && <div><strong>Bước tiếp theo:</strong> {a.recommendedNextStep}</div>}
+          {a.blockers && a.blockers.length > 0 && (
+            <div style={{ marginTop: 4, color: '#f87171' }}>
+              <strong>Blocker:</strong> {a.blockers.join(' · ')}
+            </div>
+          )}
+          {a.missingSignals && a.missingSignals.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <strong>Còn thiếu:</strong> {a.missingSignals.join(' · ')}
+            </div>
+          )}
         </div>
       )}
 
@@ -488,6 +533,7 @@ function AIChatPanel({ planSummary: _planSummary }: { planSummary: string | null
 function _AccountOverview({ actions, margin }: { actions: ActionItem[]; margin: { netProfit: number; totalAdSpend: number; shopifyRevenue: number; marginPercent: string } | null }) {
   const kills = actions.filter(a => a.type === 'KILL');
   const scales = actions.filter(a => a.type === 'SCALE');
+  const opportunities = actions.filter(a => a.type === 'OPPORTUNITY');
   const watches = actions.filter(a => a.type === 'WATCH');
 
   const wastedBudget = kills.reduce((s, a) => s + (a.oldBudget ?? 0), 0);
@@ -529,6 +575,11 @@ function _AccountOverview({ actions, margin }: { actions: ActionItem[]; margin: 
         {scales.length > 0 && (
           <div style={{ padding: '6px 10px', background: '#22c55e15', borderRadius: 6, marginBottom: 4 }}>
             🟢 <strong>Tăng budget {scales.length} camp</strong> — các camp có CPA tốt dưới ${42} và đang có lời
+          </div>
+        )}
+        {opportunities.length > 0 && (
+          <div style={{ padding: '6px 10px', background: '#eab30815', borderRadius: 6, marginBottom: 4 }}>
+            🟡 <strong>{opportunities.length} camp tốt đang chờ scale</strong> — xem readiness để biết còn thiếu gì trước khi tăng budget
           </div>
         )}
         {watches.length > 0 && (
@@ -584,6 +635,7 @@ export default function ActionPlanPage() {
   // Split actions into groups
   const actionKill = actions.filter(a => a.type === 'KILL');
   const actionScale = actions.filter(a => a.type === 'SCALE' || a.type === 'LAUNCH' || a.type === 'REVERT');
+  const actionOpportunity = actions.filter(a => a.type === 'OPPORTUNITY');
   const actionWatch = actions.filter(a => a.type === 'WATCH');
 
   const handleRegenerate = async () => {
@@ -678,6 +730,11 @@ export default function ActionPlanPage() {
             {actionScale.length > 0 && (
               <div className="mb-md">
                 <ActionSection title="Nên Tăng Budget" actions={actionScale} color="#22c55e" targetCpa={targetCpa} sortKey="profit" />
+              </div>
+            )}
+            {actionOpportunity.length > 0 && (
+              <div className="mb-md">
+                <ActionSection title="Camp Tốt Đang Chờ Scale" actions={actionOpportunity} color="#eab308" targetCpa={targetCpa} sortKey="profit" />
               </div>
             )}
             <div className="mb-lg">

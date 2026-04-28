@@ -19,6 +19,7 @@
 export type LifecyclePhase = 'LEARNING' | 'EVALUATING' | 'PERFORMING' | 'SCALING' | 'FATIGUED';
 export type CampType = 'PROSPECTING' | 'RETARGETING' | 'MIXED';
 export type EvalAction = 'NO_ACTION' | 'WATCH' | 'KEEP' | 'SCALE' | 'REFRESH' | 'KILL';
+export type ScaleReadinessLabel = 'SCALE_READY' | 'OPPORTUNITY' | 'SCALE_BLOCKED' | 'NOT_READY';
 
 export interface EvalCampaignData {
   campaignId: string;
@@ -85,6 +86,27 @@ export interface CampaignEvaluation {
   confidence: number;
 }
 
+export interface ScaleReadinessResult {
+  score: number;
+  label: ScaleReadinessLabel;
+  blockers: string[];
+  missingSignals: string[];
+  recommendedNextStep: string;
+  changePercent: number;
+  recommendedBudget: number;
+  risk: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+interface ScaleThresholds {
+  requiredConversions: number;
+  requiredPurchaseDays: number;
+  requiredProfitDays: number;
+  cpaMultiplier: number;
+  frequencyLimit: number;
+  cpaTrendLimit: number;
+  changePercent: number;
+}
+
 // ─────────────────────────────────────────
 // Camp Type Classification
 // ─────────────────────────────────────────
@@ -99,6 +121,174 @@ export function classifyCampType(avgFrequency: number): CampType {
   if (avgFrequency < 1.20) return 'PROSPECTING';
   if (avgFrequency >= 1.35) return 'RETARGETING';
   return 'MIXED';
+}
+
+// ─────────────────────────────────────────
+// Growth Scale Readiness
+// ─────────────────────────────────────────
+
+function getGrowthScaleThresholds(dailyBudget: number): ScaleThresholds {
+  if (dailyBudget >= 500) {
+    return {
+      requiredConversions: 5,
+      requiredPurchaseDays: 4,
+      requiredProfitDays: 5,
+      cpaMultiplier: 1.05,
+      frequencyLimit: 2.5,
+      cpaTrendLimit: 15,
+      changePercent: 5,
+    };
+  }
+
+  if (dailyBudget >= 100) {
+    return {
+      requiredConversions: 4,
+      requiredPurchaseDays: 3,
+      requiredProfitDays: 3,
+      cpaMultiplier: 1.10,
+      frequencyLimit: 2.6,
+      cpaTrendLimit: 20,
+      changePercent: 15,
+    };
+  }
+
+  return {
+    requiredConversions: 2,
+    requiredPurchaseDays: 2,
+    requiredProfitDays: 2,
+    cpaMultiplier: 1.15,
+    frequencyLimit: 2.8,
+    cpaTrendLimit: 25,
+    changePercent: 20,
+  };
+}
+
+function calculateScaleRisk(data: EvalCampaignData): ScaleReadinessResult['risk'] {
+  if (data.dailyBudget >= 500) {
+    if (data.consecutiveProfitDays >= 7) return 'LOW';
+    if (data.consecutiveProfitDays >= 5) return 'MEDIUM';
+    return 'HIGH';
+  }
+
+  if (data.dailyBudget >= 100) {
+    if (data.consecutiveProfitDays >= 5) return 'LOW';
+    if (data.consecutiveProfitDays >= 3) return 'MEDIUM';
+    return 'HIGH';
+  }
+
+  if (data.consecutiveProfitDays >= 3 && data.conversions7d >= 3) return 'LOW';
+  if (data.consecutiveProfitDays >= 2 && data.conversions7d >= 2) return 'MEDIUM';
+  return 'HIGH';
+}
+
+function buildScaleReadiness(
+  data: EvalCampaignData,
+  config: EvalConfig,
+  funnelHealth?: number
+): ScaleReadinessResult {
+  const thresholds = getGrowthScaleThresholds(data.dailyBudget);
+  const blockers: string[] = [];
+  const missingSignals: string[] = [];
+  const frequency = data.avgFrequency7d || data.frequency || 0;
+  const cpaLimit = config.targetCpa * thresholds.cpaMultiplier;
+  const profitPerOrder = data.profitPerOrder7d ?? null;
+
+  if (data.conversions7d < thresholds.requiredConversions) {
+    const missing = thresholds.requiredConversions - data.conversions7d;
+    missingSignals.push(`Cần thêm ${missing} conversion trong 7 ngày để đủ mẫu scale`);
+  }
+
+  if (data.daysWithPurchases < thresholds.requiredPurchaseDays) {
+    const missing = thresholds.requiredPurchaseDays - data.daysWithPurchases;
+    missingSignals.push(`Cần thêm ${missing} ngày có purchase để giảm rủi ro lucky conversion`);
+  }
+
+  if (data.consecutiveProfitDays < thresholds.requiredProfitDays) {
+    const missing = thresholds.requiredProfitDays - data.consecutiveProfitDays;
+    missingSignals.push(`Cần thêm ${missing} ngày có lời liên tiếp`);
+  }
+
+  if (data.avgCPA7d === null) {
+    missingSignals.push('Cần CPA 7 ngày để xác nhận hiệu quả');
+  } else if (data.avgCPA7d > cpaLimit) {
+    blockers.push(`CPA 7d $${data.avgCPA7d.toFixed(0)} cao hơn ngưỡng Growth $${cpaLimit.toFixed(0)}`);
+  }
+
+  if (frequency >= thresholds.frequencyLimit) {
+    blockers.push(`Frequency ${frequency.toFixed(1)} cao hơn ngưỡng Growth ${thresholds.frequencyLimit.toFixed(1)}`);
+  }
+
+  if (data.cpaTrend > thresholds.cpaTrendLimit) {
+    blockers.push(`CPA trend đang tăng +${data.cpaTrend.toFixed(0)}%, cao hơn ngưỡng +${thresholds.cpaTrendLimit}%`);
+  }
+
+  if (profitPerOrder !== null && profitPerOrder <= 0 && data.conversions7d > 0) {
+    blockers.push('Profit/order chưa dương, margin quá mỏng để scale');
+  }
+
+  const conversionScore = Math.min(20, (data.conversions7d / thresholds.requiredConversions) * 20);
+  const purchaseScore = Math.min(15, (data.daysWithPurchases / thresholds.requiredPurchaseDays) * 15);
+  const profitDaysScore = Math.min(15, (data.consecutiveProfitDays / thresholds.requiredProfitDays) * 15);
+  const cpaScore = data.avgCPA7d === null
+    ? 0
+    : data.avgCPA7d <= cpaLimit ? 18 : Math.max(0, 18 - ((data.avgCPA7d - cpaLimit) / cpaLimit) * 30);
+  const frequencyScore = frequency > 0 && frequency < thresholds.frequencyLimit ? 12 : 0;
+  const trendScore = data.cpaTrend <= 0 ? 10 : data.cpaTrend <= thresholds.cpaTrendLimit ? 7 : 0;
+  const profitScore = profitPerOrder === null ? 0 : profitPerOrder > 0 ? 10 : 0;
+  const healthScore = Math.min(10, Math.max(0, (funnelHealth ?? 0) / 10));
+  const blockerPenalty = blockers.length * 18;
+
+  const score = Math.max(0, Math.min(100, Math.round(
+    conversionScore + purchaseScore + profitDaysScore + cpaScore +
+    frequencyScore + trendScore + profitScore + healthScore - blockerPenalty
+  )));
+
+  const hasPositiveSignal =
+    data.conversions7d > 0 &&
+    (profitPerOrder === null || profitPerOrder > 0) &&
+    (data.avgCPA7d === null || data.avgCPA7d <= config.targetCpa * 1.25);
+  const hasGoodFunnelSignal = (funnelHealth ?? 0) >= 60 && data.spend7d >= config.targetCpa;
+
+  let label: ScaleReadinessLabel;
+  if (blockers.length > 0 && (hasPositiveSignal || score >= 45)) {
+    label = 'SCALE_BLOCKED';
+  } else if (score >= 80 && missingSignals.length === 0) {
+    label = 'SCALE_READY';
+  } else if (score >= 55 || hasPositiveSignal || hasGoodFunnelSignal) {
+    label = 'OPPORTUNITY';
+  } else {
+    label = 'NOT_READY';
+  }
+
+  let recommendedNextStep: string;
+  if (label === 'SCALE_READY') {
+    recommendedNextStep = `Có thể tăng budget +${thresholds.changePercent}% hôm nay, vẫn cần human approval.`;
+  } else if (label === 'SCALE_BLOCKED') {
+    recommendedNextStep = blockers[0] ?? 'Giữ budget, chờ risk signal ổn định trước khi scale.';
+  } else if (label === 'OPPORTUNITY') {
+    recommendedNextStep = missingSignals[0] ?? 'Giữ budget và theo dõi thêm 1-2 ngày để xác nhận stability.';
+  } else {
+    recommendedNextStep = 'Chưa đủ tín hiệu scale; tiếp tục đánh giá theo 7-day window.';
+  }
+
+  return {
+    score,
+    label,
+    blockers,
+    missingSignals,
+    recommendedNextStep,
+    changePercent: thresholds.changePercent,
+    recommendedBudget: Math.round(data.dailyBudget * (1 + thresholds.changePercent / 100) * 100) / 100,
+    risk: calculateScaleRisk(data),
+  };
+}
+
+export function evaluateScaleReadiness(
+  data: EvalCampaignData,
+  evaluation: CampaignEvaluation | null,
+  config: EvalConfig
+): ScaleReadinessResult {
+  return buildScaleReadiness(data, config, evaluation?.funnelHealth);
 }
 
 // ─────────────────────────────────────────
@@ -125,14 +315,8 @@ export function getLifecyclePhase(data: EvalCampaignData, config: EvalConfig): L
     return 'FATIGUED';
   }
 
-  // SCALING: proven profitable + stable
-  if (
-    data.consecutiveProfitDays >= 5 &&
-    data.avgFrequency7d < 2.5 &&
-    data.conversions7d > 0 &&
-    data.avgCPA7d !== null &&
-    data.avgCPA7d <= config.targetCpa * 1.5
-  ) {
+  // SCALING: Growth-mode readiness, tiered by current budget.
+  if (buildScaleReadiness(data, config).label === 'SCALE_READY') {
     return 'SCALING';
   }
 
@@ -244,6 +428,7 @@ export function calculateFunnelHealth(
   campType: CampType,
   _config: EvalConfig
 ): number {
+  void _config;
   const ctr = scoreCTR(data.avgCTR7d || data.ctr);
   const atcRate = scoreATCRate(data.atc7d || data.addToCart, data.clicks);
   const icRate = scoreICRate(data.ic7d || data.initiateCheckout, data.atc7d || data.addToCart);

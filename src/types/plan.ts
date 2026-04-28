@@ -3,7 +3,7 @@
    ============================================ */
 
 /** Action type in a plan */
-export type ActionType = 'SCALE' | 'KILL' | 'WATCH' | 'REVERT' | 'LAUNCH';
+export type ActionType = 'SCALE' | 'KILL' | 'WATCH' | 'OPPORTUNITY' | 'REVERT' | 'LAUNCH';
 
 /** A single action item in an action plan */
 export interface ActionItem {
@@ -30,6 +30,12 @@ export interface ActionItem {
   funnelHealth?: number;         // 0-100
   profitPerOrder?: number | null;
   diagnosis?: string;            // Metric combo pattern description
+  // Growth scale readiness fields
+  readinessScore?: number;       // 0-100 score for scale readiness
+  readinessLabel?: string;       // SCALE_READY, OPPORTUNITY, SCALE_BLOCKED, NOT_READY
+  blockers?: string[];           // Hard risk blocks preventing scale
+  missingSignals?: string[];     // Missing data/stability signals
+  recommendedNextStep?: string;  // Human-readable next step
   // V3.1 — additional metrics for detailed UI
   spend7d?: number;              // Total spend over 7 days
   conversions7d?: number;        // Total orders over 7 days
