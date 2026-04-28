@@ -72,9 +72,17 @@ export function getScaleRecommendation(
 
   // Assess risk
   let risk: ScaleRecommendation['risk'];
-  if (data.consecutiveProfitDays >= 7) {
+  if (data.dailyBudget >= 500) {
+    if (data.consecutiveProfitDays >= 7) risk = 'LOW';
+    else if (data.consecutiveProfitDays >= 5) risk = 'MEDIUM';
+    else risk = 'HIGH';
+  } else if (data.dailyBudget >= 100) {
+    if (data.consecutiveProfitDays >= 5) risk = 'LOW';
+    else if (data.consecutiveProfitDays >= 3) risk = 'MEDIUM';
+    else risk = 'HIGH';
+  } else if (data.consecutiveProfitDays >= 3 && data.conversions7d >= 3) {
     risk = 'LOW';
-  } else if (data.consecutiveProfitDays >= 5) {
+  } else if (data.consecutiveProfitDays >= 2 && data.conversions7d >= 2) {
     risk = 'MEDIUM';
   } else {
     risk = 'HIGH';

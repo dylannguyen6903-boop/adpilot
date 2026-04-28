@@ -21,9 +21,11 @@ import type { DailyMarginResult } from './margin';
 import { createAIClient, type AIClient } from '@/lib/ai';
 import {
   evaluateCampaign,
+  evaluateScaleReadiness,
   type EvalCampaignData,
   type EvalConfig,
   type CampaignEvaluation,
+  type ScaleReadinessResult,
 } from './evaluator';
 import {
   getScaleRecommendation,
@@ -111,6 +113,7 @@ export interface GeneratedPlan {
   scaleRecommendations: ScaleRecommendation[];
   budgetReallocations: BudgetReallocation[];
   accountHealth: string | null;
+  opportunityCount?: number;
 }
 
 // ─────────────────────────────────────────
@@ -355,6 +358,13 @@ export async function generateActionPlanV2(
   const evaluations: CampaignEvaluation[] = evalDataList.map(d =>
     evaluateCampaign(d, evalConfig)
   );
+  const readinessMap = new Map<string, ScaleReadinessResult>();
+  for (const evaluation of evaluations) {
+    const data = evalDataList.find(d => d.campaignId === evaluation.campaignId);
+    if (data) {
+      readinessMap.set(evaluation.campaignId, evaluateScaleReadiness(data, evaluation, evalConfig));
+    }
+  }
 
   // ── Step 3: Generate scale recommendations ──
   const scaleRecommendations: ScaleRecommendation[] = [];
@@ -401,17 +411,30 @@ export async function generateActionPlanV2(
   }
 
   for (const evaluation of evaluations) {
-    // Skip NO_ACTION (learning) and KEEP (performing normally, no card needed)
-    if (evaluation.action === 'NO_ACTION' || evaluation.action === 'KEEP') {
-      continue;
-    }
-
     const camp = campaigns.find(c => c.campaignId === evaluation.campaignId);
     if (!camp) continue;
 
+    const readiness = readinessMap.get(evaluation.campaignId);
+    const shouldShowOpportunity =
+      readiness !== undefined &&
+      readiness.score >= 55 &&
+      (readiness.label === 'OPPORTUNITY' || readiness.label === 'SCALE_BLOCKED') &&
+      evaluation.action !== 'KILL' &&
+      evaluation.action !== 'REFRESH';
+
+    // Skip true no-action/keep campaigns unless Growth mode found a visible opportunity.
+    if (
+      (evaluation.action === 'NO_ACTION' || evaluation.action === 'KEEP') &&
+      !shouldShowOpportunity
+    ) {
+      continue;
+    }
+
     const aiAction = aiActionMap.get(evaluation.campaignId);
     // If AI disagrees and has higher confidence, use AI's recommendation
-    const finalAction = (aiAction && aiAction.confidence > evaluation.confidence)
+    const finalAction = shouldShowOpportunity
+      ? 'OPPORTUNITY'
+      : (aiAction && aiAction.confidence > evaluation.confidence)
       ? aiAction.action
       : evaluation.action;
 
@@ -441,9 +464,17 @@ export async function generateActionPlanV2(
         break;
       }
 
+      case 'OPPORTUNITY':
+        type = 'OPPORTUNITY';
+        description = readiness?.label === 'SCALE_BLOCKED'
+          ? `Camp tốt nhưng đang bị block — ${readiness.recommendedNextStep}`
+          : `Camp tốt đang chờ scale — ${readiness?.recommendedNextStep ?? evaluation.diagnosis}`;
+        newBudget = readiness?.recommendedBudget ?? camp.dailyBudget;
+        break;
+
       case 'REFRESH':
         type = 'WATCH';
-        description = `⚠️ Creative fatigue — refresh hooks/visuals. Don't kill yet.`;
+        description = `Creative fatigue — refresh hooks/visuals. Don't kill yet.`;
         newBudget = camp.dailyBudget;
         break;
 
@@ -457,6 +488,7 @@ export async function generateActionPlanV2(
 
     const reasoning = aiAction?.reasoning || evaluation.reasoning;
     const insight = aiAction?.insight || null;
+    const includeReadiness = type !== 'KILL';
 
     actions.push({
       id: `action-${++actionId}`,
@@ -481,6 +513,11 @@ export async function generateActionPlanV2(
       funnelHealth: evaluation.funnelHealth,
       profitPerOrder: evaluation.profitPerOrder,
       diagnosis: evaluation.diagnosis,
+      readinessScore: includeReadiness ? readiness?.score : undefined,
+      readinessLabel: includeReadiness ? readiness?.label : undefined,
+      blockers: includeReadiness ? readiness?.blockers : undefined,
+      missingSignals: includeReadiness ? readiness?.missingSignals : undefined,
+      recommendedNextStep: includeReadiness ? readiness?.recommendedNextStep : undefined,
       // V3.1 — detailed metrics for UI
       spend7d: camp.spend7d,
       conversions7d: camp.conversions7d,
@@ -497,13 +534,14 @@ export async function generateActionPlanV2(
     });
   }
 
-  // Sort: KILL first, then SCALE, then WATCH
-  const typePriority: Record<string, number> = { KILL: 0, REVERT: 1, SCALE: 2, LAUNCH: 3, WATCH: 4 };
+  // Sort: KILL first, then SCALE, then opportunity, then WATCH
+  const typePriority: Record<string, number> = { KILL: 0, REVERT: 1, SCALE: 2, OPPORTUNITY: 3, LAUNCH: 4, WATCH: 5 };
   actions.sort((a, b) => (typePriority[a.type] ?? 9) - (typePriority[b.type] ?? 9));
 
   // Summary counts
   const scaleCount = actions.filter(a => a.type === 'SCALE').length;
   const killCount = actions.filter(a => a.type === 'KILL').length;
+  const opportunityCount = actions.filter(a => a.type === 'OPPORTUNITY').length;
   const watchCount = actions.filter(a => a.type === 'WATCH').length;
   const refreshCount = actions.filter(a => a.description.includes('Creative fatigue')).length;
   const learningCount = evaluations.filter(e => e.lifecycle === 'LEARNING').length;
@@ -511,6 +549,7 @@ export async function generateActionPlanV2(
   const parts: string[] = [];
   if (killCount > 0) parts.push(`🔴 Kill ${killCount} → save $${budgetSaved.toFixed(0)}/day`);
   if (scaleCount > 0) parts.push(`🟢 Scale ${scaleCount}`);
+  if (opportunityCount > 0) parts.push(`🟡 Opportunity ${opportunityCount}`);
   if (watchCount > 0) parts.push(`🟠 Watch ${watchCount}`);
   if (refreshCount > 0) parts.push(`🔄 Refresh ${refreshCount}`);
   if (learningCount > 0) parts.push(`⚫ ${learningCount} learning`);
@@ -523,6 +562,7 @@ export async function generateActionPlanV2(
     scaleCount,
     killCount,
     watchCount,
+    opportunityCount,
     refreshCount,
     learningCount,
     projectedMargin: margin.dailyMargin,

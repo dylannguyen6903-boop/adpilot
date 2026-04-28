@@ -497,10 +497,17 @@ async function generateAndReturnPlan(date: string, days: number, adAccountId: st
 
     const goalCampaigns: CampaignForGoal[] = campaigns.map(c => {
       const evalResult = plan.evaluations.find(e => e.campaignId === c.campaignId);
+      const planAction = plan.actions.find(a => a.campaignId === c.campaignId);
+      const status =
+        planAction?.type === 'SCALE' ? 'SCALE_READY'
+        : planAction?.type === 'OPPORTUNITY' ? 'OPPORTUNITY'
+        : evalResult?.lifecycle || 'LEARNING';
       return {
         campaignId: c.campaignId,
         campaignName: c.campaignName,
-        status: evalResult?.lifecycle || 'LEARNING',
+        status,
+        readinessScore: planAction?.readinessScore,
+        readinessLabel: planAction?.readinessLabel,
         spend: c.spend7d,
         conversions: c.conversions7d,
         cpa: c.avgCPA7d,
@@ -524,4 +531,3 @@ async function generateAndReturnPlan(date: string, days: number, adAccountId: st
     cached: false,
   });
 }
-

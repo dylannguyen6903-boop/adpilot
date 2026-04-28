@@ -165,8 +165,9 @@ export function generateActionPlan(input: PlannerInput): GeneratedPlan {
     KILL: 0,
     REVERT: 1,
     SCALE: 2,
-    LAUNCH: 3,
-    WATCH: 4,
+    OPPORTUNITY: 3,
+    LAUNCH: 4,
+    WATCH: 5,
   };
   actions.sort((a, b) => typePriority[a.type] - typePriority[b.type]);
 

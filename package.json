@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test:scale": "node --experimental-transform-types scripts/test-scale-readiness.mjs",
     "lint": "eslint"
   },
   "dependencies": {
