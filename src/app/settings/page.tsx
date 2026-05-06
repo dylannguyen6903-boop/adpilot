@@ -24,6 +24,7 @@ interface ConnectionsResponse {
     shopify: {
       configured: boolean;
       storeDomain: string | null;
+      hasClientCredentials: boolean;
       lastSync: string | null;
       lastSyncStatus: string | null;
       lastError: string | null;
@@ -52,6 +53,8 @@ export default function SettingsPage() {
   const [fbAccountId, setFbAccountId] = useState('');
   const [shopifyDomain, setShopifyDomain] = useState('');
   const [shopifyToken, setShopifyToken] = useState('');
+  const [shopifyClientId, setShopifyClientId] = useState('');
+  const [shopifyClientSecret, setShopifyClientSecret] = useState('');
   const [shopifyDomainTouched, setShopifyDomainTouched] = useState(false);
 
   // Status
@@ -193,6 +196,28 @@ export default function SettingsPage() {
     if (res.ok) {
       setShopifyMsg('✅ Kết nối Shopify thành công!');
       setShopifyToken('');
+      setShopifyDomainTouched(false);
+      refetchConnections();
+    } else {
+      setShopifyMsg(`❌ ${data.error || 'Kết nối thất bại'}`);
+    }
+  };
+
+  const handleConnectShopifyClientCredentials = async () => {
+    setShopifyMsg('');
+    const res = await fetch('/api/settings/connections', {
+      method: 'PUT',
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        shopifyStoreDomain: shopifyDomain,
+        shopifyClientId,
+        shopifyClientSecret,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setShopifyMsg('✅ Kết nối Shopify thành công bằng Client ID/Secret.');
+      setShopifyClientSecret('');
       setShopifyDomainTouched(false);
       refetchConnections();
     } else {
@@ -374,6 +399,7 @@ export default function SettingsPage() {
               {connections?.shopify.storeDomain && (
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>
                   Store đang lưu: {connections.shopify.storeDomain}
+                  {connections.shopify.hasClientCredentials ? ' • Có Client ID/Secret để tự refresh token' : ''}
                 </div>
               )}
 
@@ -392,17 +418,33 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Admin API Access Token</label>
-                  <input className="form-input" type="password" placeholder="shpat_xxxxx" value={shopifyToken} onChange={(e) => setShopifyToken(e.target.value)} />
+                  <label className="form-label">Client ID</label>
+                  <input className="form-input" type="text" placeholder="Từ Shopify Dev Dashboard → Settings" value={shopifyClientId} onChange={(e) => setShopifyClientId(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Client Secret</label>
+                  <input className="form-input" type="password" placeholder="Từ Shopify Dev Dashboard → Settings" value={shopifyClientSecret} onChange={(e) => setShopifyClientSecret(e.target.value)} />
+                  <span className="form-helper">App phải được Release và Install vào store trước. Token sẽ được tạo tự động, không cần copy shpat thủ công.</span>
+                </div>
+                <button className="btn btn-primary" onClick={handleConnectShopifyClientCredentials} disabled={!shopifyDomain || !shopifyClientId || !shopifyClientSecret || savingConnections} id="btn-connect-shopify-client-credentials">
+                  {shopifyConnectionState.label === 'Cần kết nối lại' ? 'Kết nối lại Shopify' : 'Kết nối Shopify'}
+                </button>
+
+                <div style={{ borderTop: '1px solid var(--border-primary)', paddingTop: 'var(--space-md)', marginTop: 'var(--space-xs)' }}>
+                  <div className="form-group">
+                    <label className="form-label">Admin API Access Token thủ công</label>
+                    <input className="form-input" type="password" placeholder="shpat_xxxxx hoặc token Shopify Admin API" value={shopifyToken} onChange={(e) => setShopifyToken(e.target.value)} />
+                    <span className="form-helper">Chỉ dùng nếu app legacy còn hiện token trong Shopify Admin.</span>
+                  </div>
+                  <button className="btn btn-secondary" onClick={handleConnectShopify} disabled={!shopifyDomain || !shopifyToken || savingConnections} id="btn-connect-shopify">
+                    Lưu token thủ công
+                  </button>
                 </div>
                 {shopifyMsg && (
                   <div style={{ fontSize: 'var(--text-sm)', color: shopifyMsg.startsWith('✅') ? 'var(--color-winner)' : 'var(--color-kill)' }}>
                     {shopifyMsg.replace('✅ ', '').replace('❌ ', '')}
                   </div>
                 )}
-                <button className="btn btn-primary" onClick={handleConnectShopify} disabled={!shopifyDomain || !shopifyToken || savingConnections} id="btn-connect-shopify">
-                  {shopifyConnectionState.label === 'Cần kết nối lại' ? 'Kết nối lại Shopify' : 'Kết nối Shopify'}
-                </button>
               </div>
             </div>
 

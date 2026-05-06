@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requestShopifyClientCredentialsToken } from '@/lib/shopifyToken';
 
 /** Only allow legitimate Shopify domains */
 const SHOPIFY_DOMAIN_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
 
 /**
  * POST /api/shopify/auth-start
- * Stores OAuth credentials server-side and returns the Shopify authorize URL.
- * This keeps client_secret out of the browser entirely.
+ * Gets a Shopify Admin API token with the Dev Dashboard client credentials flow.
  * 
  * Body: { clientId, clientSecret, shop }
- * Returns: { authorizeUrl }
+ * Returns: { access_token, scope, expires_in }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -31,45 +31,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Store credentials server-side (in business_profiles, temporary)
-    const { error } = await supabaseAdmin
-      .from('business_profiles')
-      .update({
-        shopify_oauth_state: {
-          clientId,
-          clientSecret,
-          shop,
-          createdAt: new Date().toISOString(),
-        },
-      })
-      .eq('id', 1);
+    const token = await requestShopifyClientCredentialsToken({ shop, clientId, clientSecret });
 
-    if (error) {
-      // If id=1 doesn't work, try updating the first row
-      await supabaseAdmin
-        .from('business_profiles')
-        .update({
-          shopify_oauth_state: {
-            clientId,
-            clientSecret,
-            shop,
-            createdAt: new Date().toISOString(),
-          },
-        })
-        .limit(1);
+    const { data: existing } = await supabaseAdmin
+      .from('business_profiles')
+      .select('id')
+      .limit(1)
+      .single();
+
+    const updates = {
+      shopify_store_domain: shop,
+      shopify_access_token: token.accessToken,
+      shopify_api_key: clientId,
+      shopify_api_secret: clientSecret,
+      updated_at: new Date().toISOString(),
+    };
+
+    const result = existing
+      ? await supabaseAdmin.from('business_profiles').update(updates).eq('id', existing.id)
+      : await supabaseAdmin.from('business_profiles').insert({ store_name: 'Frenzidea', ...updates });
+
+    if (result.error) {
+      return NextResponse.json({ error: result.error.message }, { status: 500 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
-    const redirectUri = `${appUrl}/shopify-auth`;
-
-    const authorizeUrl = `https://${shop}/admin/oauth/authorize?client_id=${clientId}&scope=read_orders,read_products,read_customers&redirect_uri=${encodeURIComponent(redirectUri)}`;
-
-    return NextResponse.json({ authorizeUrl });
-  } catch {
+    return NextResponse.json({
+      access_token: token.accessToken,
+      scope: token.scope,
+      expires_in: token.expiresIn,
+    });
+  } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to start OAuth flow.' },
+      { error: error instanceof Error ? error.message : 'Failed to get Shopify access token.' },
       { status: 500 }
     );
   }
 }
-

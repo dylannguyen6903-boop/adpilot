@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { validateFacebookToken } from '@/lib/facebook';
 import { validateShopifyConnection } from '@/lib/shopify';
+import { requestShopifyClientCredentialsToken } from '@/lib/shopifyToken';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export async function GET() {
     // Get profile for connection info
     const { data: profile } = await supabaseAdmin
       .from('business_profiles')
-      .select('fb_accounts, fb_access_token, fb_ad_account_id, shopify_store_domain, shopify_access_token')
+      .select('fb_accounts, fb_access_token, fb_ad_account_id, shopify_store_domain, shopify_access_token, shopify_api_key')
       .limit(1)
       .single();
 
@@ -65,6 +66,7 @@ export async function GET() {
         shopify: {
           configured: !!(profile?.shopify_store_domain && profile?.shopify_access_token),
           storeDomain: profile?.shopify_store_domain || null,
+          hasClientCredentials: !!profile?.shopify_api_key,
           lastSync: shopifyLogs?.[0]?.created_at || null,
           lastSyncStatus: shopifyLogs?.[0]?.status || null,
           lastError: shopifyLogs?.[0]?.error_message || null,
@@ -150,7 +152,50 @@ export async function PUT(request: NextRequest) {
     if (body.fbAccessToken !== undefined) updates.fb_access_token = body.fbAccessToken || null;
     if (body.fbAdAccountId !== undefined) updates.fb_ad_account_id = body.fbAdAccountId || null;
 
-    // Validate and save Shopify credentials
+    // Validate and save Shopify credentials from the 2026 Dev Dashboard flow.
+    if (
+      body.shopifyStoreDomain !== undefined &&
+      body.shopifyClientId !== undefined &&
+      body.shopifyClientSecret !== undefined
+    ) {
+      if (body.shopifyStoreDomain && body.shopifyClientId && body.shopifyClientSecret) {
+        const token = await requestShopifyClientCredentialsToken({
+          shop: body.shopifyStoreDomain,
+          clientId: body.shopifyClientId,
+          clientSecret: body.shopifyClientSecret,
+        });
+
+        const shopifyValidation = await validateShopifyConnection({
+          storeDomain: body.shopifyStoreDomain,
+          accessToken: token.accessToken,
+        });
+        validationResults.shopify = {
+          ...shopifyValidation,
+          scope: token.scope,
+          expiresIn: token.expiresIn,
+          tokenFlow: 'client_credentials',
+        };
+
+        if (!shopifyValidation.valid) {
+          return NextResponse.json(
+            { error: `Invalid Shopify credentials: ${shopifyValidation.error}`, validationResults },
+            { status: 400 }
+          );
+        }
+
+        updates.shopify_store_domain = body.shopifyStoreDomain;
+        updates.shopify_access_token = token.accessToken;
+        updates.shopify_api_key = body.shopifyClientId;
+        updates.shopify_api_secret = body.shopifyClientSecret;
+      } else {
+        updates.shopify_store_domain = body.shopifyStoreDomain || null;
+        updates.shopify_access_token = null;
+        updates.shopify_api_key = null;
+        updates.shopify_api_secret = null;
+      }
+    }
+
+    // Legacy/manual Admin API token support.
     if (body.shopifyStoreDomain !== undefined && body.shopifyAccessToken !== undefined) {
       if (body.shopifyStoreDomain && body.shopifyAccessToken) {
         const shopifyValidation = await validateShopifyConnection({
@@ -216,4 +261,3 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
-
