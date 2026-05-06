@@ -21,6 +21,17 @@ test('normalizes Shopify store domains and access tokens from copied settings', 
   );
 });
 
+test('normalizes Shopify admin store URLs to myshopify domains', () => {
+  assert.equal(
+    normalizeShopifyConfig({
+      storeDomain: 'https://admin.shopify.com/store/tkww3m-6u/',
+      accessToken: 'shpat_admin',
+      source: 'database',
+    }).storeDomain,
+    'tkww3m-6u.myshopify.com'
+  );
+});
+
 test('builds sync credential candidates in request, database, then environment order', () => {
   const previousDomain = process.env.SHOPIFY_STORE_DOMAIN;
   const previousToken = process.env.SHOPIFY_ACCESS_TOKEN;

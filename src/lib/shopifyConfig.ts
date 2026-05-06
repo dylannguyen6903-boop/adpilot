@@ -7,9 +7,17 @@ export interface ShopifyConfig {
 }
 
 export function normalizeShopifyStoreDomain(storeDomain: string): string {
-  return storeDomain
+  const cleaned = storeDomain
     .trim()
     .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '');
+
+  const adminStoreMatch = cleaned.match(/^admin\.shopify\.com\/store\/([^/?#]+)/i);
+  if (adminStoreMatch) {
+    return `${adminStoreMatch[1].toLowerCase()}.myshopify.com`;
+  }
+
+  return cleaned
     .replace(/^admin\./i, '')
     .replace(/\/admin\/?.*$/i, '')
     .replace(/\/.*$/, '')
