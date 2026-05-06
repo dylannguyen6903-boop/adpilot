@@ -70,6 +70,12 @@ export default function Header({ title, subtitle, children }: HeaderProps) {
           errorDetail = fbData.error || fbData.accountErrors?.[0]?.error || '';
         } catch { /* ignore */ }
       }
+      if (!shopifyOk && shopifyRes.status === 'fulfilled') {
+        try {
+          const shopifyData = await shopifyRes.value.json();
+          errorDetail = errorDetail || shopifyData.error || '';
+        } catch { /* ignore */ }
+      }
 
       if (fbOk && shopifyOk) {
         setSyncResult('✅ Đồng bộ thành công');

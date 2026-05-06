@@ -3,9 +3,10 @@ import {
   fetchOrders,
   aggregateOrdersByDay,
   buildCustomerSummaries,
-  getShopifyConfig,
-  isShopifyConfigured,
+  isShopifyUnauthorizedError,
+  type ShopifyConfig,
 } from '@/lib/shopify';
+import { getShopifyConfigCandidates } from '@/lib/shopifyConfig';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
 
@@ -21,11 +22,11 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    let customConfig;
+    let requestConfig: Partial<ShopifyConfig> | undefined;
     try {
       const body = await request.json();
       if (body.storeDomain && body.accessToken) {
-        customConfig = {
+        requestConfig = {
           storeDomain: body.storeDomain,
           accessToken: body.accessToken,
         };
@@ -34,24 +35,23 @@ export async function POST(request: NextRequest) {
       // No body, try DB then env config
     }
 
-    // Priority: request body → DB credentials → env vars
-    if (!customConfig) {
-      const { data: profile } = await supabaseAdmin
-        .from('business_profiles')
-        .select('shopify_store_domain, shopify_access_token')
-        .limit(1)
-        .single();
+    const { data: profileWithCredentials } = await supabaseAdmin
+      .from('business_profiles')
+      .select('shopify_store_domain, shopify_access_token')
+      .limit(1)
+      .single();
 
-      if (profile?.shopify_store_domain && profile?.shopify_access_token) {
-        customConfig = {
-          storeDomain: profile.shopify_store_domain,
-          accessToken: profile.shopify_access_token,
-        };
-      }
-    }
+    const candidates = getShopifyConfigCandidates({
+      request: requestConfig,
+      database: profileWithCredentials?.shopify_store_domain && profileWithCredentials?.shopify_access_token
+        ? {
+            storeDomain: profileWithCredentials.shopify_store_domain,
+            accessToken: profileWithCredentials.shopify_access_token,
+          }
+        : undefined,
+    });
 
-    const config = customConfig || getShopifyConfig();
-    if (!isShopifyConfigured(config)) {
+    if (candidates.length === 0) {
       return NextResponse.json(
         { error: 'Shopify not configured. Set store domain and access token in Settings.' },
         { status: 400 }
@@ -62,7 +62,31 @@ export async function POST(request: NextRequest) {
     const today = getAdAccountToday();
     const sevenDaysAgo = getAdAccountDateMinusDays(7);
 
-    const orders = await fetchOrders(sevenDaysAgo, today, config);
+    let orders;
+    let lastUnauthorizedError: unknown = null;
+    let usedCredentialSource: ShopifyConfig['source'] = candidates[0]?.source;
+
+    for (const candidate of candidates) {
+      try {
+        orders = await fetchOrders(sevenDaysAgo, today, candidate);
+        usedCredentialSource = candidate.source;
+        break;
+      } catch (error) {
+        if (!isShopifyUnauthorizedError(error)) {
+          throw error;
+        }
+
+        lastUnauthorizedError = error;
+        console.warn(
+          `[Shopify sync] ${candidate.source || 'unknown'} credentials rejected for ${candidate.storeDomain}; trying next configured source.`
+        );
+      }
+    }
+
+    if (!orders) {
+      throw lastUnauthorizedError || new Error('Shopify sync failed before orders were fetched.');
+    }
+
     const dailySummaries = aggregateOrdersByDay(orders);
     const customerSummaries = buildCustomerSummaries(orders);
 
@@ -131,17 +155,20 @@ export async function POST(request: NextRequest) {
       dailySummaries: dailySummaries.length,
       financialsSynced,
       customersSynced,
+      credentialSource: usedCredentialSource,
       durationMs,
     });
   } catch (error) {
     const durationMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const status = isShopifyUnauthorizedError(error) ? 401 : 500;
 
     // Log failed sync (best-effort, ignore errors)
     try {
       await supabaseAdmin.from('sync_logs').insert({
         sync_type: 'SHOPIFY',
         status: 'FAILED',
-        error_message: String(error),
+        error_message: errorMessage,
         duration_ms: durationMs,
       });
     } catch {
@@ -149,9 +176,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Shopify sync failed. Check credentials in Settings.' },
-      { status: 500 }
+      { error: errorMessage },
+      { status }
     );
   }
 }
-

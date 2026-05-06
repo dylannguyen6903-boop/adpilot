@@ -7,24 +7,34 @@
  */
 
 import { convertToAdAccountDate } from '@/lib/timezone';
+import {
+  getShopifyConfig,
+  isShopifyConfigured,
+  normalizeShopifyConfig,
+  type ShopifyConfig,
+} from '@/lib/shopifyConfig';
 
-interface ShopifyConfig {
-  storeDomain: string;
-  accessToken: string;
+export { getShopifyConfig, isShopifyConfigured, type ShopifyConfig };
+
+export class ShopifyApiError extends Error {
+  status: number;
+  statusText: string;
+  domain: string;
+
+  constructor(status: number, statusText: string, domain: string, detail?: string) {
+    const action = status === 401
+      ? 'Reconnect Shopify in Settings or update SHOPIFY_ACCESS_TOKEN.'
+      : 'Check Shopify Admin API configuration.';
+    super(`Shopify API error (${status}): ${statusText} for ${domain}. ${detail ? `${detail} ` : ''}${action}`);
+    this.name = 'ShopifyApiError';
+    this.status = status;
+    this.statusText = statusText;
+    this.domain = domain;
+  }
 }
 
-/** Get Shopify config from environment or provided values */
-export function getShopifyConfig(overrides?: Partial<ShopifyConfig>): ShopifyConfig {
-  return {
-    storeDomain: overrides?.storeDomain || process.env.SHOPIFY_STORE_DOMAIN || '',
-    accessToken: overrides?.accessToken || process.env.SHOPIFY_ACCESS_TOKEN || '',
-  };
-}
-
-/** Check if Shopify is configured */
-export function isShopifyConfigured(config?: ShopifyConfig): boolean {
-  const cfg = config || getShopifyConfig();
-  return !!(cfg.storeDomain && cfg.accessToken);
+export function isShopifyUnauthorizedError(error: unknown): boolean {
+  return error instanceof ShopifyApiError && error.status === 401;
 }
 
 // ─────────────────────────────────────────────
@@ -177,20 +187,22 @@ async function shopifyGraphQL<T>(
   variables: Record<string, unknown>,
   config: ShopifyConfig
 ): Promise<T> {
-  const domain = config.storeDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const normalizedConfig = normalizeShopifyConfig(config);
+  const domain = normalizedConfig.storeDomain;
   const url = `https://${domain}/admin/api/2024-10/graphql.json`;
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': config.accessToken,
+      'X-Shopify-Access-Token': normalizedConfig.accessToken,
     },
     body: JSON.stringify({ query, variables }),
   });
 
   if (!response.ok) {
-    throw new Error(`Shopify API error (${response.status}): ${response.statusText}`);
+    const detail = await response.text().catch(() => '');
+    throw new ShopifyApiError(response.status, response.statusText, domain, detail.trim() || undefined);
   }
 
   const result = await response.json();
