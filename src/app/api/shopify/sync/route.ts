@@ -7,7 +7,6 @@ import {
   type ShopifyConfig,
 } from '@/lib/shopify';
 import { getShopifyConfigCandidates } from '@/lib/shopifyConfig';
-import { requestShopifyClientCredentialsToken } from '@/lib/shopifyToken';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccountToday, getAdAccountDateMinusDays } from '@/lib/timezone';
 
@@ -38,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profileWithCredentials } = await supabaseAdmin
       .from('business_profiles')
-      .select('id, shopify_store_domain, shopify_access_token, shopify_oauth_state')
+      .select('id, shopify_store_domain, shopify_access_token')
       .limit(1)
       .single();
 
@@ -78,41 +77,6 @@ export async function POST(request: NextRequest) {
         }
 
         lastUnauthorizedError = error;
-
-        if (
-          candidate.source === 'database' &&
-          profileWithCredentials?.id &&
-          profileWithCredentials?.shopify_store_domain &&
-          profileWithCredentials?.shopify_oauth_state?.clientId &&
-          profileWithCredentials?.shopify_oauth_state?.clientSecret
-        ) {
-          try {
-            const token = await requestShopifyClientCredentialsToken({
-              shop: profileWithCredentials.shopify_store_domain,
-              clientId: profileWithCredentials.shopify_oauth_state.clientId,
-              clientSecret: profileWithCredentials.shopify_oauth_state.clientSecret,
-            });
-
-            await supabaseAdmin
-              .from('business_profiles')
-              .update({
-                shopify_access_token: token.accessToken,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', profileWithCredentials.id);
-
-            orders = await fetchOrders(sevenDaysAgo, today, {
-              storeDomain: profileWithCredentials.shopify_store_domain,
-              accessToken: token.accessToken,
-              source: 'database',
-            });
-            usedCredentialSource = 'database';
-            break;
-          } catch (refreshError) {
-            lastUnauthorizedError = refreshError;
-          }
-        }
-
         console.warn(
           `[Shopify sync] ${candidate.source || 'unknown'} credentials rejected for ${candidate.storeDomain}; trying next configured source.`
         );
