@@ -30,7 +30,7 @@ export async function GET() {
     // Get profile for connection info
     const { data: profile } = await supabaseAdmin
       .from('business_profiles')
-      .select('fb_accounts, fb_access_token, fb_ad_account_id, shopify_store_domain, shopify_access_token, shopify_api_key')
+      .select('fb_accounts, fb_access_token, fb_ad_account_id, shopify_store_domain, shopify_access_token, shopify_oauth_state')
       .limit(1)
       .single();
 
@@ -66,7 +66,7 @@ export async function GET() {
         shopify: {
           configured: !!(profile?.shopify_store_domain && profile?.shopify_access_token),
           storeDomain: profile?.shopify_store_domain || null,
-          hasClientCredentials: !!profile?.shopify_api_key,
+          hasClientCredentials: !!profile?.shopify_oauth_state?.clientId,
           lastSync: shopifyLogs?.[0]?.created_at || null,
           lastSyncStatus: shopifyLogs?.[0]?.status || null,
           lastError: shopifyLogs?.[0]?.error_message || null,
@@ -185,13 +185,17 @@ export async function PUT(request: NextRequest) {
 
         updates.shopify_store_domain = body.shopifyStoreDomain;
         updates.shopify_access_token = token.accessToken;
-        updates.shopify_api_key = body.shopifyClientId;
-        updates.shopify_api_secret = body.shopifyClientSecret;
+        updates.shopify_oauth_state = {
+          clientId: body.shopifyClientId,
+          clientSecret: body.shopifyClientSecret,
+          shop: body.shopifyStoreDomain,
+          tokenFlow: 'client_credentials',
+          updatedAt: new Date().toISOString(),
+        };
       } else {
         updates.shopify_store_domain = body.shopifyStoreDomain || null;
         updates.shopify_access_token = null;
-        updates.shopify_api_key = null;
-        updates.shopify_api_secret = null;
+        updates.shopify_oauth_state = null;
       }
     }
 
@@ -213,13 +217,6 @@ export async function PUT(request: NextRequest) {
       }
       updates.shopify_store_domain = body.shopifyStoreDomain || null;
       updates.shopify_access_token = body.shopifyAccessToken || null;
-    }
-
-    if (body.shopifyApiKey !== undefined) {
-      updates.shopify_api_key = body.shopifyApiKey || null;
-    }
-    if (body.shopifyApiSecret !== undefined) {
-      updates.shopify_api_secret = body.shopifyApiSecret || null;
     }
 
     // Upsert profile with connection details

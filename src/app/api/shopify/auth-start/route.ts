@@ -42,8 +42,13 @@ export async function POST(request: NextRequest) {
     const updates = {
       shopify_store_domain: shop,
       shopify_access_token: token.accessToken,
-      shopify_api_key: clientId,
-      shopify_api_secret: clientSecret,
+      shopify_oauth_state: {
+        clientId,
+        clientSecret,
+        shop,
+        tokenFlow: 'client_credentials',
+        updatedAt: new Date().toISOString(),
+      },
       updated_at: new Date().toISOString(),
     };
 

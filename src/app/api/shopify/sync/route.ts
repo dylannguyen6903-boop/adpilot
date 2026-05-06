@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profileWithCredentials } = await supabaseAdmin
       .from('business_profiles')
-      .select('id, shopify_store_domain, shopify_access_token, shopify_api_key, shopify_api_secret')
+      .select('id, shopify_store_domain, shopify_access_token, shopify_oauth_state')
       .limit(1)
       .single();
 
@@ -83,14 +83,14 @@ export async function POST(request: NextRequest) {
           candidate.source === 'database' &&
           profileWithCredentials?.id &&
           profileWithCredentials?.shopify_store_domain &&
-          profileWithCredentials?.shopify_api_key &&
-          profileWithCredentials?.shopify_api_secret
+          profileWithCredentials?.shopify_oauth_state?.clientId &&
+          profileWithCredentials?.shopify_oauth_state?.clientSecret
         ) {
           try {
             const token = await requestShopifyClientCredentialsToken({
               shop: profileWithCredentials.shopify_store_domain,
-              clientId: profileWithCredentials.shopify_api_key,
-              clientSecret: profileWithCredentials.shopify_api_secret,
+              clientId: profileWithCredentials.shopify_oauth_state.clientId,
+              clientSecret: profileWithCredentials.shopify_oauth_state.clientSecret,
             });
 
             await supabaseAdmin
