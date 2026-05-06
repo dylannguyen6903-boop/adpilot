@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Header, PageContainer } from '@/components/layout';
 import { useApiData, useApiAction, apiHeaders } from '@/hooks/useApi';
 import { timeAgo } from '@/lib/utils';
+import { getShopifyConnectionState } from '@/lib/connectionStatus';
 
 interface ProfileResponse {
   success: boolean;
@@ -51,6 +52,7 @@ export default function SettingsPage() {
   const [fbAccountId, setFbAccountId] = useState('');
   const [shopifyDomain, setShopifyDomain] = useState('');
   const [shopifyToken, setShopifyToken] = useState('');
+  const [shopifyDomainTouched, setShopifyDomainTouched] = useState(false);
 
   // Status
   const [profileMsg, setProfileMsg] = useState('');
@@ -97,13 +99,21 @@ export default function SettingsPage() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const connections = connectionsData?.connections;
+  const shopifyConnectionState = getShopifyConnectionState({
+    configured: !!connections?.shopify.configured,
+    lastSyncStatus: connections?.shopify.lastSyncStatus || null,
+  });
 
   /* eslint-disable react-hooks/set-state-in-effect -- syncing API data to local state */
   useEffect(() => {
     if (connectionsData?.connections?.facebook?.accounts) {
       setFbAccounts(connectionsData.connections.facebook.accounts);
     }
-  }, [connectionsData]);
+    const savedShopifyDomain = connectionsData?.connections?.shopify?.storeDomain;
+    if (savedShopifyDomain && !shopifyDomainTouched) {
+      setShopifyDomain(savedShopifyDomain);
+    }
+  }, [connectionsData, shopifyDomainTouched]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSaveProfile = async () => {
@@ -183,6 +193,7 @@ export default function SettingsPage() {
     if (res.ok) {
       setShopifyMsg('✅ Kết nối Shopify thành công!');
       setShopifyToken('');
+      setShopifyDomainTouched(false);
       refetchConnections();
     } else {
       setShopifyMsg(`❌ ${data.error || 'Kết nối thất bại'}`);
@@ -349,9 +360,9 @@ export default function SettingsPage() {
             <div className="card" id="settings-shopify">
               <div className="card-header">
                 <div className="card-title">Kết nối Shopify</div>
-                <span className={`status-badge ${connections?.shopify.configured ? 'winner' : 'kill'}`}>
+                <span className={`status-badge ${shopifyConnectionState.tone}`}>
                   <span className="status-dot" />
-                  {connections?.shopify.configured ? 'Đã kết nối' : 'Chưa kết nối'}
+                  {shopifyConnectionState.label}
                 </span>
               </div>
 
@@ -360,11 +371,25 @@ export default function SettingsPage() {
                   Đồng bộ lần cuối: {timeAgo(connections.shopify.lastSync)} — {connections.shopify.lastSyncStatus}
                 </div>
               )}
+              {connections?.shopify.storeDomain && (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>
+                  Store đang lưu: {connections.shopify.storeDomain}
+                </div>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
                 <div className="form-group">
                   <label className="form-label">Tên miền cửa hàng</label>
-                  <input className="form-input" type="text" placeholder="frenzidea.myshopify.com" value={shopifyDomain} onChange={(e) => setShopifyDomain(e.target.value)} />
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="frenzidea.myshopify.com"
+                    value={shopifyDomain}
+                    onChange={(e) => {
+                      setShopifyDomainTouched(true);
+                      setShopifyDomain(e.target.value);
+                    }}
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Admin API Access Token</label>
@@ -376,7 +401,7 @@ export default function SettingsPage() {
                   </div>
                 )}
                 <button className="btn btn-primary" onClick={handleConnectShopify} disabled={!shopifyDomain || !shopifyToken || savingConnections} id="btn-connect-shopify">
-                  Kết nối Shopify
+                  {shopifyConnectionState.label === 'Cần kết nối lại' ? 'Kết nối lại Shopify' : 'Kết nối Shopify'}
                 </button>
               </div>
             </div>
