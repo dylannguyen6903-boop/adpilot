@@ -7,6 +7,7 @@
  */
 
 import { convertToAdAccountDate } from '@/lib/timezone';
+import { supabaseAdmin } from '@/lib/supabase';
 import {
   getShopifyConfig,
   isShopifyConfigured,
@@ -15,6 +16,126 @@ import {
 } from '@/lib/shopifyConfig';
 
 export { getShopifyConfig, isShopifyConfigured, type ShopifyConfig };
+
+// ─────────────────────────────────────────────
+// Token Refresh Logic (Expiring Offline Tokens)
+// ─────────────────────────────────────────────
+
+export interface ShopifyOAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  shop: string;
+}
+
+export interface ShopifyTokenRefreshResult {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  refresh_token_expires_in?: number;
+  scope: string;
+}
+
+/** Refresh an expired Shopify access token using the refresh token */
+export async function refreshShopifyAccessToken(
+  creds: ShopifyOAuthCredentials
+): Promise<ShopifyTokenRefreshResult> {
+  const shop = creds.shop.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const url = `https://${shop}/admin/oauth/access_token`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: creds.refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify token refresh failed (${response.status}): ${text}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get a valid Shopify config, auto-refreshing the token if expired.
+ * Priority: check DB for token + expiry → refresh if needed → fallback to env.
+ */
+export async function getValidShopifyConfig(): Promise<ShopifyConfig> {
+  const { data: profile } = await supabaseAdmin
+    .from('business_profiles')
+    .select('shopify_store_domain, shopify_access_token, shopify_refresh_token, shopify_token_expires_at, shopify_client_id, shopify_client_secret')
+    .limit(1)
+    .single();
+
+  if (!profile?.shopify_store_domain || !profile?.shopify_access_token) {
+    return getShopifyConfig();
+  }
+
+  const now = new Date();
+  const expiresAt = profile.shopify_token_expires_at
+    ? new Date(profile.shopify_token_expires_at)
+    : null;
+
+  const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+  if (!expiresAt || expiresAt.getTime() - now.getTime() > REFRESH_BUFFER_MS) {
+    return {
+      storeDomain: profile.shopify_store_domain,
+      accessToken: profile.shopify_access_token,
+    };
+  }
+
+  if (!profile.shopify_refresh_token || !profile.shopify_client_id || !profile.shopify_client_secret) {
+    console.warn('[Shopify] Token expired but no refresh credentials available.');
+    return {
+      storeDomain: profile.shopify_store_domain,
+      accessToken: profile.shopify_access_token,
+    };
+  }
+
+  console.log('[Shopify] Access token expired, refreshing...');
+  try {
+    const result = await refreshShopifyAccessToken({
+      clientId: profile.shopify_client_id,
+      clientSecret: profile.shopify_client_secret,
+      refreshToken: profile.shopify_refresh_token,
+      shop: profile.shopify_store_domain,
+    });
+
+    const newExpiresAt = new Date(now.getTime() + result.expires_in * 1000).toISOString();
+    const newRefreshExpiresAt = result.refresh_token_expires_in
+      ? new Date(now.getTime() + result.refresh_token_expires_in * 1000).toISOString()
+      : null;
+
+    await supabaseAdmin
+      .from('business_profiles')
+      .update({
+        shopify_access_token: result.access_token,
+        shopify_refresh_token: result.refresh_token,
+        shopify_token_expires_at: newExpiresAt,
+        ...(newRefreshExpiresAt ? { shopify_refresh_token_expires_at: newRefreshExpiresAt } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('shopify_store_domain', profile.shopify_store_domain);
+
+    console.log(`[Shopify] Token refreshed. New expiry: ${newExpiresAt}`);
+    return {
+      storeDomain: profile.shopify_store_domain,
+      accessToken: result.access_token,
+    };
+  } catch (err) {
+    console.error('[Shopify] Token refresh failed:', err);
+    return {
+      storeDomain: profile.shopify_store_domain,
+      accessToken: profile.shopify_access_token,
+    };
+  }
+}
 
 export class ShopifyApiError extends Error {
   status: number;
@@ -181,15 +302,19 @@ const ORDERS_QUERY = `
 // API Methods
 // ─────────────────────────────────────────────
 
-/** Make a GraphQL request to Shopify Admin API */
+/**
+ * Make a GraphQL request to Shopify Admin API.
+ * On 401, attempts one automatic token refresh before failing.
+ */
 async function shopifyGraphQL<T>(
   query: string,
   variables: Record<string, unknown>,
-  config: ShopifyConfig
+  config: ShopifyConfig,
+  _retried = false
 ): Promise<T> {
   const normalizedConfig = normalizeShopifyConfig(config);
   const domain = normalizedConfig.storeDomain;
-  const url = `https://${domain}/admin/api/2024-10/graphql.json`;
+  const url = `https://${domain}/admin/api/2026-04/graphql.json`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -199,6 +324,19 @@ async function shopifyGraphQL<T>(
     },
     body: JSON.stringify({ query, variables }),
   });
+
+  // Auto-retry on 401: refresh token and try once more
+  if (response.status === 401 && !_retried) {
+    console.warn(`[Shopify] 401 Unauthorized for ${domain}. Attempting token refresh...`);
+    try {
+      const refreshedConfig = await getValidShopifyConfig();
+      if (refreshedConfig.accessToken !== normalizedConfig.accessToken) {
+        return shopifyGraphQL<T>(query, variables, refreshedConfig, true);
+      }
+    } catch (refreshErr) {
+      console.error('[Shopify] Auto-refresh on 401 failed:', refreshErr);
+    }
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '');

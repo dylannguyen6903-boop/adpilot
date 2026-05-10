@@ -4,6 +4,7 @@ import {
   aggregateOrdersByDay,
   buildCustomerSummaries,
   isShopifyUnauthorizedError,
+  getValidShopifyConfig,
   type ShopifyConfig,
 } from '@/lib/shopify';
 import { getShopifyConfigCandidates } from '@/lib/shopifyConfig';
@@ -35,6 +36,14 @@ export async function POST(request: NextRequest) {
       // No body, try DB then env config
     }
 
+    // Try auto-refreshed config first (handles expiring tokens)
+    let autoRefreshedConfig: ShopifyConfig | undefined;
+    try {
+      autoRefreshedConfig = await getValidShopifyConfig();
+    } catch {
+      // Auto-refresh failed, fall through to candidates
+    }
+
     const { data: profileWithCredentials } = await supabaseAdmin
       .from('business_profiles')
       .select('id, shopify_store_domain, shopify_access_token')
@@ -51,12 +60,21 @@ export async function POST(request: NextRequest) {
         : undefined,
     });
 
+    // Prepend auto-refreshed config if it differs from existing candidates
+    if (autoRefreshedConfig && autoRefreshedConfig.accessToken) {
+      const alreadyIncluded = candidates.some(c => c.accessToken === autoRefreshedConfig!.accessToken);
+      if (!alreadyIncluded) {
+        candidates.unshift({ ...autoRefreshedConfig, source: 'database' });
+      }
+    }
+
     if (candidates.length === 0) {
       return NextResponse.json(
         { error: 'Shopify not configured. Set store domain and access token in Settings.' },
         { status: 400 }
       );
     }
+
 
     // Fetch last 7 days of orders
     const today = getAdAccountToday();

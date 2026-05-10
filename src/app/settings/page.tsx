@@ -25,6 +25,9 @@ interface ConnectionsResponse {
       configured: boolean;
       storeDomain: string | null;
       hasClientCredentials: boolean;
+      hasRefreshToken: boolean;
+      tokenExpiresAt: string | null;
+      refreshTokenExpiresAt: string | null;
       lastSync: string | null;
       lastSyncStatus: string | null;
       lastError: string | null;
@@ -55,7 +58,9 @@ export default function SettingsPage() {
   const [shopifyToken, setShopifyToken] = useState('');
   const [shopifyClientId, setShopifyClientId] = useState('');
   const [shopifyClientSecret, setShopifyClientSecret] = useState('');
+  const [shopifyRefreshToken, setShopifyRefreshToken] = useState('');
   const [shopifyDomainTouched, setShopifyDomainTouched] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Status
   const [profileMsg, setProfileMsg] = useState('');
@@ -212,12 +217,14 @@ export default function SettingsPage() {
         shopifyStoreDomain: shopifyDomain,
         shopifyClientId,
         shopifyClientSecret,
+        ...(shopifyRefreshToken ? { shopifyRefreshToken } : {}),
       }),
     });
     const data = await res.json();
     if (res.ok) {
       setShopifyMsg('✅ Kết nối Shopify thành công bằng Client ID/Secret.');
       setShopifyClientSecret('');
+      setShopifyRefreshToken('');
       setShopifyDomainTouched(false);
       refetchConnections();
     } else {
@@ -399,7 +406,39 @@ export default function SettingsPage() {
               {connections?.shopify.storeDomain && (
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>
                   Store đang lưu: {connections.shopify.storeDomain}
-                  {connections.shopify.hasClientCredentials ? ' • Có Client ID/Secret để tự refresh token' : ''}
+                  {connections.shopify.hasClientCredentials ? ' • Có Client ID/Secret' : ''}
+                  {connections.shopify.hasRefreshToken ? ' • Auto-refresh ON' : ''}
+                </div>
+              )}
+
+              {/* Token Status Banner */}
+              {connections?.shopify.configured && connections.shopify.tokenExpiresAt && (
+                <div style={{
+                  padding: 'var(--space-sm) var(--space-md)',
+                  borderRadius: 'var(--radius-sm)',
+                  marginBottom: 'var(--space-md)',
+                  fontSize: 'var(--text-xs)',
+                  lineHeight: '1.6',
+                  background: connections.shopify.hasRefreshToken
+                    ? 'rgba(34, 197, 94, 0.08)'
+                    : 'rgba(249, 115, 22, 0.08)',
+                  border: `1px solid ${connections.shopify.hasRefreshToken ? 'var(--color-winner)' : 'var(--color-watch)'}`,
+                }}>
+                  <div>
+                    <strong>Token hết hạn:</strong>{' '}
+                    {new Date(connections.shopify.tokenExpiresAt).toLocaleString('vi-VN')}
+                    {new Date(connections.shopify.tokenExpiresAt) < new Date()
+                      ? ' ⚠️ ĐÃ HẾT HẠN'
+                      : ` (còn ${Math.round((new Date(connections.shopify.tokenExpiresAt).getTime() - Date.now()) / 60000)} phút)`
+                    }
+                  </div>
+                  <div>
+                    <strong>Auto-refresh:</strong>{' '}
+                    {connections.shopify.hasRefreshToken && connections.shopify.hasClientCredentials
+                      ? '✅ Đã cấu hình (tự động gia hạn)'
+                      : '❌ Chưa cấu hình'
+                    }
+                  </div>
                 </div>
               )}
 
@@ -424,7 +463,11 @@ export default function SettingsPage() {
                 <div className="form-group">
                   <label className="form-label">Client Secret</label>
                   <input className="form-input" type="password" placeholder="Từ Shopify Dev Dashboard → Settings" value={shopifyClientSecret} onChange={(e) => setShopifyClientSecret(e.target.value)} />
-                  <span className="form-helper">App phải được Release và Install vào store trước. Token sẽ được tạo tự động, không cần copy shpat thủ công.</span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Refresh Token</label>
+                  <input className="form-input" type="password" placeholder="30bbe6bde845... (từ API credentials)" value={shopifyRefreshToken} onChange={(e) => setShopifyRefreshToken(e.target.value)} />
+                  <span className="form-helper">Copy từ trang API credentials. Hệ thống sẽ tự động gia hạn token.</span>
                 </div>
                 <button className="btn btn-primary" onClick={handleConnectShopifyClientCredentials} disabled={!shopifyDomain || !shopifyClientId || !shopifyClientSecret || savingConnections} id="btn-connect-shopify-client-credentials">
                   {shopifyConnectionState.label === 'Cần kết nối lại' ? 'Kết nối lại Shopify' : 'Kết nối Shopify'}
@@ -444,6 +487,36 @@ export default function SettingsPage() {
                   <div style={{ fontSize: 'var(--text-sm)', color: shopifyMsg.startsWith('✅') ? 'var(--color-winner)' : 'var(--color-kill)' }}>
                     {shopifyMsg.replace('✅ ', '').replace('❌ ', '')}
                   </div>
+                )}
+                {connections?.shopify.hasRefreshToken && (
+                  <button
+                    className={`btn btn-secondary ${refreshing ? 'syncing' : ''}`}
+                    disabled={refreshing}
+                    id="btn-refresh-shopify-token"
+                    onClick={async () => {
+                      setRefreshing(true);
+                      setShopifyMsg('');
+                      try {
+                        const res = await fetch('/api/shopify/refresh', {
+                          method: 'POST',
+                          headers: apiHeaders(),
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setShopifyMsg(`✅ Token mới: ${data.accessTokenPrefix} - hết hạn ${new Date(data.expiresAt).toLocaleString('vi-VN')}`);
+                          refetchConnections();
+                        } else {
+                          setShopifyMsg(`❌ ${data.error}`);
+                        }
+                      } catch {
+                        setShopifyMsg('❌ Refresh thất bại');
+                      } finally {
+                        setRefreshing(false);
+                      }
+                    }}
+                  >
+                    {refreshing ? 'Đang refresh...' : '🔄 Refresh Token'}
+                  </button>
                 )}
               </div>
             </div>

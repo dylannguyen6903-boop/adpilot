@@ -30,7 +30,7 @@ export async function GET() {
     // Get profile for connection info
     const { data: profile } = await supabaseAdmin
       .from('business_profiles')
-      .select('fb_accounts, fb_access_token, fb_ad_account_id, shopify_store_domain, shopify_access_token')
+      .select('fb_accounts, fb_access_token, fb_ad_account_id, shopify_store_domain, shopify_access_token, shopify_token_expires_at, shopify_refresh_token, shopify_refresh_token_expires_at, shopify_client_id')
       .limit(1)
       .single();
 
@@ -66,7 +66,10 @@ export async function GET() {
         shopify: {
           configured: !!(profile?.shopify_store_domain && profile?.shopify_access_token),
           storeDomain: profile?.shopify_store_domain || null,
-          hasClientCredentials: false,
+          hasClientCredentials: !!profile?.shopify_client_id,
+          hasRefreshToken: !!profile?.shopify_refresh_token,
+          tokenExpiresAt: profile?.shopify_token_expires_at || null,
+          refreshTokenExpiresAt: profile?.shopify_refresh_token_expires_at || null,
           lastSync: shopifyLogs?.[0]?.created_at || null,
           lastSyncStatus: shopifyLogs?.[0]?.status || null,
           lastError: shopifyLogs?.[0]?.error_message || null,
@@ -209,6 +212,18 @@ export async function PUT(request: NextRequest) {
       }
       updates.shopify_store_domain = body.shopifyStoreDomain || null;
       updates.shopify_access_token = body.shopifyAccessToken || null;
+    }
+
+    // Save refresh token for auto-refresh flow
+    if (body.shopifyRefreshToken !== undefined) {
+      updates.shopify_refresh_token = body.shopifyRefreshToken || null;
+    }
+    // Also save client_id/secret from manual input
+    if (body.shopifyClientId !== undefined && !updates.shopify_client_id) {
+      updates.shopify_client_id = body.shopifyClientId || null;
+    }
+    if (body.shopifyClientSecret !== undefined && !updates.shopify_client_secret) {
+      updates.shopify_client_secret = body.shopifyClientSecret || null;
     }
 
     // Upsert profile with connection details
