@@ -1,11 +1,24 @@
-# SRS: Product-Level Attribution Engine cho AdPilot
+# SRS v1.1: Product-Level Attribution Engine cho AdPilot
 
 > **Ticket ID**: ADPILOT-PA-001
+> **Version**: 1.1 (updated theo May review TKT-00233)
 > **Ngày tạo**: 2026-05-10
+> **Ngày cập nhật**: 2026-05-11
 > **Tạo bởi**: Antigravity (Windows Agent)
-> **Gửi đến**: May (Mac Pro Agent) — thảo luận & đưa ra phiên bản tối ưu
+> **Review bởi**: May (Mac Pro Agent)
 > **Priority**: P1
-> **Estimated Effort**: 2-3 ngày (Phase 1), 3-5 ngày (Phase 2)
+
+---
+
+## Changelog v1.0 → v1.1
+
+- ✅ Sửa data source: `customerJourneySummary` thay vì `order.landingSite` (May P1)
+- ✅ Tách `order_attribution` thành 2 tables: order-level + line-item level (May P2)
+- ✅ `collection_performance` → materialized view (May P3)
+- ✅ Thêm spend allocation logic (revenue share) (May P4)
+- ✅ Thêm Phase 0: Data Quality Audit
+- ✅ Thêm UTM Setup Guide cho Facebook Ads
+- ✅ Thêm cost analysis
 
 ---
 
@@ -15,372 +28,433 @@
 Xây dựng hệ thống Product-Level Attribution cho AdPilot, kết nối dữ liệu Facebook Ads (campaign/adset/ad) với dữ liệu Shopify Orders (products/collections/customers) để:
 - Biết **ad nào bán được product nào**
 - Biết **collection nào (billiard/bowling/darts/fishing) đang lãi/lỗ** khi tính cả ad spend
-- Biết **customer nào từ paid ads có giá trị cao** (LTV tracking)
+- Biết **customer nào từ paid ads có giá trị cao** (LTV tracking, Phase 2)
 
 ### Context
-Store frenzidea.com có 5-7k products POD, chạy Facebook Ads. Hiện tại AdPilot chỉ link được:
+Store frenzidea.com có 5-7k products POD, chạy Facebook Ads. Hiện AdPilot chỉ link:
 ```
 Facebook Ads (spend) + Shopify Orders (total revenue) = ROAS tổng
 ```
-Thiếu hoàn toàn layer giữa: **product-level** và **customer-level** attribution.
+Thiếu layer: product-level và customer-level attribution.
 
 ---
 
 ## 2. WHY — Tại sao cần
 
-### Business Case
 - **5-7k products** → không thể chạy ads cho tất cả, phải chọn đúng product
 - **POD margin mỏng** (~40-50%) → mỗi $ budget đặt sai = lỗ thật
-- **Competitor advantage**: Đối thủ POD chỉ nhìn ROAS tổng. Ai có product-level data sẽ biết đổ budget vào đâu chính xác hơn
-
-### Current Pain Points
-1. Owner không biết campaign X bán được product A hay product B
-2. Không biết collection nào (billiard vs bowling) có ROI cao hơn
-3. Không phân biệt được "traffic rẻ" (mua 1 lần) vs "traffic chất" (mua lại)
-4. Ra quyết định budget allocation bằng cảm tính thay vì data
+- **Competitor advantage**: Đối thủ POD chỉ nhìn ROAS tổng. Product-level data = biết đổ budget vào đâu chính xác
 
 ---
 
-## 3. STRUCTURE — Kiến trúc
+## 3. STRUCTURE — Kiến trúc (Updated per May review)
 
 ### Current State (AS-IS)
 
 ```
-┌──────────────────┐       ┌──────────────────┐
-│  Facebook Ads    │       │  Shopify Orders   │
-│  campaign_       │       │  daily_financials │
-│  snapshots       │       │                   │
-│  ─────────────   │       │  ─────────────    │
-│  campaign_id     │       │  date             │
-│  spend           │       │  shopify_revenue  │
-│  impressions     │       │  shopify_orders   │
-│  clicks          │       │  shopify_aov      │
-│  purchases       │       │                   │
-│  roas            │       │                   │
-└────────┬─────────┘       └────────┬──────────┘
-         │                          │
-         └──────────┬───────────────┘
-                    │ JOIN on: date only (LOOSE)
-                    ▼
-              ┌──────────┐
-              │ Dashboard │
-              │ ROAS tổng │
-              └──────────┘
+Facebook campaign_snapshots ──┐
+                               ├── JOIN on: date only (LOOSE) → ROAS tổng
+Shopify daily_financials  ─────┘
 ```
-
-**Vấn đề**: Join chỉ bằng date → không biết campaign nào tạo ra order nào.
 
 ### Target State (TO-BE)
 
 ```
-┌──────────────────┐       ┌───────────────────┐       ┌──────────────────┐
-│  Facebook Ads    │       │  ORDER_ATTRIBUTION │       │  Shopify Orders  │
-│  campaign_       │       │  (NEW TABLE)       │       │  + Line Items    │
-│  snapshots       │       │  ─────────────     │       │  ─────────────   │
-│  ─────────────   │       │  order_id          │       │  order_id        │
-│  campaign_id     │◄──────│  campaign_id       │──────►│  product_title   │
-│  adset_id        │       │  adset_id          │       │  product_type    │
-│  ad_id           │       │  ad_id             │       │  collection      │
-│  spend           │       │  utm_source        │       │  sku             │
-│  clicks          │       │  utm_medium        │       │  price           │
-│  purchases       │       │  utm_campaign      │       │  quantity        │
-│                  │       │  utm_content       │       │  customer_email  │
-│                  │       │  customer_email     │       │  customer_ltv    │
-│                  │       │  revenue            │       │                  │
-│                  │       │  product_ids[]      │       │                  │
-└──────────────────┘       └───────────────────┘       └──────────────────┘
-         │                          │                           │
-         └──────────────────────────┼───────────────────────────┘
-                                    ▼
-                    ┌────────────────────────────┐
-                    │  COLLECTION P&L VIEW (NEW) │
-                    │  ─────────────────────     │
-                    │  collection_name           │
-                    │  total_revenue             │
-                    │  attributed_ad_spend       │
-                    │  profit                    │
-                    │  roas_per_collection       │
-                    │  top_products              │
-                    │  customer_ltv_avg          │
-                    └────────────────────────────┘
+┌──────────────────┐    ┌─────────────────────┐    ┌────────────────────┐
+│  Facebook Ads    │    │  ORDER ATTRIBUTIONS  │    │  Shopify Orders    │
+│  campaign_       │    │  (order-level)       │    │  + Line Items      │
+│  snapshots       │    │  ───────────────     │    │  ──────────────    │
+│  ─────────────   │    │  order_id            │    │  order_id          │
+│  campaign_id  ◄──┼────│  campaign_id         │────┼►─product_title     │
+│  spend           │    │  adset_id            │    │  product_type      │
+│                  │    │  ad_id               │    │  sku               │
+│                  │    │  utm_source/medium    │    │  price, quantity   │
+│                  │    │  attribution_status   │    │  customer_email    │
+│                  │    │  total_revenue        │    │                    │
+└──────────────────┘    └─────────┬───────────┘    └────────────────────┘
+                                  │
+                    ┌─────────────┴────────────────┐
+                    │  ORDER ATTRIBUTION ITEMS      │
+                    │  (line-item level)             │
+                    │  ──────────────────            │
+                    │  order_id                      │
+                    │  product_id, sku, title         │
+                    │  quantity, item_revenue         │
+                    │  collection_key                 │
+                    └─────────────┬────────────────┘
+                                  │
+                    ┌─────────────┴────────────────┐
+                    │  PRODUCT COLLECTION CACHE     │
+                    │  ──────────────────            │
+                    │  product_id → collection_key   │
+                    │  product_type, tags             │
+                    └─────────────┬────────────────┘
+                                  │
+                    ┌─────────────┴────────────────┐
+                    │  COLLECTION P&L VIEW          │
+                    │  (materialized view)           │
+                    │  ──────────────────            │
+                    │  collection_key                │
+                    │  total_revenue                  │
+                    │  attributed_spend (by rev %)    │
+                    │  profit, roas                   │
+                    │  top_products                   │
+                    └──────────────────────────────┘
 ```
 
 ---
 
-## 4. FLOW — Luồng dữ liệu
+## 4. FLOW — Luồng dữ liệu (Updated)
 
-### Phase 1: UTM-Based Attribution
-
-```
-Step 1: Facebook Ad URLs đã có UTM params
-        https://frenzidea.com/products/xxx?utm_source=facebook&utm_campaign={campaign_id}&utm_content={ad_id}
-
-Step 2: Shopify Order → có `landingPage` chứa UTM params (qua GraphQL)
-        Hoặc: Shopify Order → `referringSite` field
-
-Step 3: Khi sync orders, parse UTM → extract campaign_id, ad_id
-
-Step 4: Lưu vào order_attribution table với:
-        - order_id
-        - campaign_id (from UTM)
-        - ad_id (from UTM)
-        - product_ids[] (from lineItems)
-        - collection tags (from product tags/type)
-        - customer_email
-        - revenue
-
-Step 5: Aggregate → Collection P&L view
-```
-
-### Phase 2: Customer LTV Tracking
+### Phase 0: Data Quality Audit (TRƯỚC KHI CODE)
 
 ```
-Step 1: Từ order_attribution, group by customer_email
-Step 2: Tính: total_orders, total_revenue, first_order_campaign
-Step 3: LTV = total_revenue / first_acquisition_cost
-Step 4: Attribution: campaign đầu tiên "sở hữu" customer đó
-Step 5: Dashboard hiển thị: Campaign A acquired 50 customers, avg LTV $120
+Script chạy 1 lần → fetch 7 ngày orders gần nhất → report:
+- Tổng orders
+- % orders có customerJourneySummary.ready = true
+- % orders có UTM facebook
+- % products có collection mapping
+- % orders "unattributed" (không UTM, không referrer)
+→ Nếu attribution coverage < 30% → STOP, fix UTM trước
+→ Nếu > 50% → GO, proceed Phase 1
+```
+
+### Phase 1: Product Attribution (sau Phase 0 pass)
+
+```
+Step 1: Shopify sync fetches orders + customerJourneySummary
+        GraphQL query: customerJourneySummary {
+          ready
+          firstVisit { landingPage, referrerUrl, source, utmParameters { source, medium, campaign, content, term } }
+          lastVisit { ... }
+        }
+
+Step 2: Parse UTM from customerJourneySummary (NOT raw URL)
+        utm_campaign → campaign_id
+        utm_content → ad_id
+        utm_term → adset_id
+
+Step 3: Fetch lineItems with product details
+        lineItems { product { id, productType, collections(first:3) { edges { node { title } } } } }
+
+Step 4: Save to order_attributions (order-level)
+        + order_attribution_items (per line item)
+
+Step 5: Update product_collection_cache (if product not cached)
+
+Step 6: Refresh materialized view: collection_performance_mv
+
+Step 7: Dashboard reads from collection_performance_mv
+```
+
+### Spend Allocation Logic (May's correction)
+
+```
+Problem: Campaign X spent $100 today, sold 3 orders:
+  - Order A: $30 billiard shirt
+  - Order B: $50 bowling shirt  
+  - Order C: $20 billiard shirt
+
+Total revenue = $100
+Billiard share = $50/$100 = 50%
+Bowling share = $50/$100 = 50%
+
+Attributed spend:
+  - Billiard: $100 × 50% = $50
+  - Bowling: $100 × 50% = $50
+
+NOT: Billiard = $100, Bowling = $100 (double count!)
 ```
 
 ---
 
-## 5. DEPENDENCIES — Phụ thuộc
+## 5. DEPENDENCIES
 
-### Shopify API Requirements
-| Field cần | API | Available? | Scope cần |
-|-----------|-----|-----------|-----------|
-| `order.landingSite` | GraphQL Admin | ✅ | `read_orders` (đã có) |
-| `order.referringSite` | GraphQL Admin | ✅ | `read_orders` (đã có) |
-| `order.lineItems` | GraphQL Admin | ✅ Đã fetch (shopify.ts L196-199) | `read_orders` |
-| `order.lineItems.product.productType` | GraphQL Admin | ✅ Cần thêm vào query | `read_products` (có thể cần thêm) |
-| `order.lineItems.product.collections` | GraphQL Admin | ✅ Cần thêm vào query | `read_products` |
-| `order.customer.email` | GraphQL Admin | ✅ Đã fetch (shopify.ts L278-280) | `read_customers` (đã có) |
+### Shopify API (Updated per May)
 
-### Facebook Ads API Requirements
-| Field cần | Available? | Notes |
-|-----------|-----------|-------|
-| Campaign ID | ✅ Đã có trong `campaign_snapshots` | |
-| Ad Set ID | ⚠️ Có thể cần thêm vào sync | Hiện sync ở campaign level |
-| Ad ID | ⚠️ Cần thêm breakdown | Để match UTM content |
-| UTM parameters | ✅ Phải set đúng trong Facebook Ads Manager | Owner phải config |
+| Field | API Path | Available? |
+|-------|----------|-----------|
+| `customerJourneySummary.firstVisit.utmParameters` | Order GraphQL | ✅ |
+| `customerJourneySummary.firstVisit.landingPage` | Order GraphQL | ✅ |
+| `customerJourneySummary.firstVisit.source` | Order GraphQL | ✅ |
+| `customerJourneySummary.ready` | Order GraphQL | ✅ (phải check) |
+| `lineItems.product.productType` | Order GraphQL | ✅ Thêm vào query |
+| `lineItems.product.collections` | Order GraphQL | ✅ Thêm vào query |
+| `customer.email` | Order GraphQL | ✅ Đã fetch |
 
-### Database (Supabase)
-| Table | Status | Notes |
-|-------|--------|-------|
-| `campaign_snapshots` | ✅ Exists | Thêm adset_id, ad_id columns |
-| `daily_financials` | ✅ Exists | Thêm product breakdown |
-| `order_attribution` | 🆕 NEW | Core table cho feature này |
-| `collection_performance` | 🆕 NEW | Aggregated view/materialized |
-| `customer_ltv` | 🆕 NEW | Phase 2 |
+**Scopes cần**: `read_orders`, `read_products` (có thể cần thêm `read_products` nếu chưa có)
 
-### External Prerequisites (Owner phải làm)
-1. **Facebook Ads UTM setup**: Mỗi ad URL PHẢI có `utm_campaign={campaign_id}&utm_content={ad_id}`
-2. **Shopify product tagging**: Products cần có `product_type` hoặc tags rõ ràng (billiard, bowling, darts, fishing)
+### Facebook Ads API
+- Campaign-level spend: ✅ Đã có
+- Ad-level spend: Selective fetch only cho attributed ad_ids (theo May)
+
+### Infrastructure
+| Service | Plan hiện tại | Đủ cho feature? |
+|---------|-------------|----------------|
+| Supabase | Pro ($25/mo) | ✅ Storage tăng ~2MB + 150KB/tháng |
+| Vercel | Pro ($20/mo) | ✅ maxDuration=300s đủ |
+| Shopify API | Miễn phí | ✅ Chỉ tăng rate limit usage |
+| Facebook API | Miễn phí | ✅ |
+
+**Chi phí tăng thêm: $0/tháng**
 
 ---
 
-## 6. THREAT MODEL — Rủi ro
+## 6. THREAT MODEL
 
 ### Technical Risks
 
-| Risk | Probability | Impact | Mitigation |
-|------|------------|--------|------------|
-| UTM params bị mất (redirect, browser) | Medium | High | Fallback: match by date + revenue range |
-| Shopify `landingSite` không chứa UTM | Medium | High | Test trước, nếu không có dùng `referringSite` |
-| Order có nhiều products từ nhiều campaigns | Low | Medium | Attribute theo first-touch (landing page) |
-| Rate limit Shopify API khi fetch product details | Low | Medium | Batch requests, cache product→collection mapping |
-| Vercel timeout khi sync nhiều orders | Medium | Medium | Pagination, maxDuration 300s đã set |
+| Risk | Prob | Impact | Mitigation |
+|------|------|--------|------------|
+| `customerJourneySummary.ready = false` cho nhiều orders | Medium | High | Phase 0 audit sẽ phát hiện, fallback referringSite |
+| Multi-product orders double-count revenue | ~~High~~ Fixed | ~~High~~ | Tách line-item table (May fix) |
+| Rate limit khi fetch product collections | Low | Medium | Cache product→collection, batch requests |
+| Vercel timeout | Low | Medium | Pagination, maxDuration 300s |
+| Spend allocation phức tạp | Medium | Medium | Revenue-share formula đã define |
 
 ### Data Quality Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Owner không set UTM đúng | ❌ Feature vô dụng | Validation check + alert trên dashboard |
-| Products không có tags/type | Collection P&L sai | Product audit step trước khi bật feature |
-| Organic orders (không qua ads) | Inflate organic revenue | Filter: chỉ attribute orders CÓ UTM |
+| Owner không set UTM đúng | ❌ Feature vô dụng | UTM Guide + validation + Phase 0 audit |
+| Products không có collection membership | Collection P&L sai | product_collection_cache + manual mapping |
+| Organic orders (không UTM) | Inflate unattributed | Filter rõ ràng, hiện % coverage trên dashboard |
 
 ### Cost/Abuse Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Supabase storage tăng | Thấp | order_attribution ~200 bytes/row, 1000 orders/month = ~200KB |
-| API calls tăng | Thấp | Chỉ thêm 1-2 fields vào query đã có |
+- Storage: ~2MB ban đầu + 150KB/tháng → negligible
+- API: Không tốn tiền, chỉ rate limit
+- Không có external service mới
 
 ---
 
-## 7. VERIFY — Kế hoạch kiểm tra
+## 7. DATABASE SCHEMA (Updated per May)
 
-### Automated Tests
-- [ ] Unit test: UTM parser (extract campaign_id, ad_id from URL)
-- [ ] Unit test: Collection mapper (product tags → collection name)
-- [ ] Integration test: Full flow (mock Shopify order with UTM → verify attribution record)
-- [ ] Build passes: `npm run build`
-
-### Manual Verification
-- [ ] Tạo test order qua Shopify với UTM link → verify attribution đúng
-- [ ] Verify Collection P&L dashboard hiển thị đúng
-- [ ] Verify organic orders (không UTM) KHÔNG bị attribute sai
-
-### Adversarial Tests
-- [ ] Order không có UTM → phải ghi `unattributed`
-- [ ] Order có UTM nhưng campaign_id không tồn tại trong FB data → graceful handle
-- [ ] Customer email null → LTV tracking skip, không crash
-
----
-
-## 8. ROLLBACK — Kế hoạch khôi phục
-
-### Database
-```sql
--- Rollback: xóa tables mới (không ảnh hưởng data cũ)
-DROP TABLE IF EXISTS order_attribution;
-DROP TABLE IF EXISTS collection_performance;
-DROP TABLE IF EXISTS customer_ltv;
-
--- Rollback: xóa columns thêm vào existing tables
-ALTER TABLE campaign_snapshots DROP COLUMN IF EXISTS adset_id;
-ALTER TABLE campaign_snapshots DROP COLUMN IF EXISTS ad_id;
-```
-
-### Code
-- Tất cả code mới nằm trong files mới (không sửa existing logic)
-- Ngoại trừ `shopify.ts` ORDERS_QUERY cần thêm fields → rollback = revert query
-- Feature flag: có thể disable attribution sync mà không ảnh hưởng core sync
-
----
-
-## Phân Pha Triển Khai
-
-### Phase 1: Product Attribution (2-3 ngày)
-
-| # | Task | File | Effort |
-|---|------|------|--------|
-| 1.1 | Tạo Supabase migration: `order_attribution` + `collection_performance` tables | `supabase/migrate_product_attribution.sql` | 0.5 ngày |
-| 1.2 | Thêm `landingSite`, `productType`, `collections` vào ORDERS_QUERY | `src/lib/shopify.ts` | 0.5 ngày |
-| 1.3 | Viết UTM parser + attribution logic | `src/lib/attribution.ts` [NEW] | 0.5 ngày |
-| 1.4 | Tích hợp vào Shopify sync flow | `src/app/api/shopify/sync/route.ts` | 0.5 ngày |
-| 1.5 | API endpoint: Collection P&L | `src/app/api/shopify/collections/route.ts` [NEW] | 0.5 ngày |
-| 1.6 | UI: Collection Performance Dashboard | `src/app/dashboard/collections/` [NEW] | 0.5 ngày |
-
-### Phase 2: Customer LTV (3-5 ngày)
-
-| # | Task | File | Effort |
-|---|------|------|--------|
-| 2.1 | Tạo `customer_ltv` table | Migration | 0.5 ngày |
-| 2.2 | LTV calculation engine | `src/lib/ltv.ts` [NEW] | 1 ngày |
-| 2.3 | First-touch campaign attribution | `src/lib/attribution.ts` (extend) | 0.5 ngày |
-| 2.4 | API: Customer cohort analysis | `src/app/api/shopify/customers/ltv/route.ts` [NEW] | 0.5 ngày |
-| 2.5 | UI: Customer LTV dashboard | UI component | 1 ngày |
-| 2.6 | Budget allocation suggestions (AI) | `src/app/api/engine/allocate/route.ts` [NEW] | 1 ngày |
-
----
-
-## Database Schema
-
-### Table: order_attribution
+### Table: order_attributions (order-level)
 
 ```sql
-CREATE TABLE order_attribution (
+CREATE TABLE order_attributions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id UUID REFERENCES business_profiles(id),
   
-  -- Shopify data
+  -- Shopify order
   shopify_order_id TEXT NOT NULL,
-  shopify_order_name TEXT,             -- #1042
+  shopify_order_name TEXT,
   order_date DATE NOT NULL,
-  revenue DECIMAL(10,2) NOT NULL,
+  total_revenue DECIMAL(10,2) NOT NULL,
   
-  -- Attribution data (from UTM)
-  utm_source TEXT,                     -- facebook, google, organic
-  utm_medium TEXT,                     -- cpc, social, email
-  utm_campaign TEXT,                   -- campaign_id
-  utm_content TEXT,                    -- ad_id
-  utm_term TEXT,                       -- adset_id
-  attribution_type TEXT DEFAULT 'utm', -- utm, referrer, unattributed
+  -- Attribution (from customerJourneySummary)
+  utm_source TEXT,
+  utm_medium TEXT,
+  utm_campaign TEXT,           -- → campaign_id
+  utm_content TEXT,            -- → ad_id
+  utm_term TEXT,               -- → adset_id
+  attribution_type TEXT DEFAULT 'unattributed',
+    -- 'utm_first_visit', 'utm_last_visit', 'referrer', 'unattributed'
+  attribution_source TEXT,     -- raw source from customerJourneySummary
   
-  -- Product data
-  product_ids TEXT[],                  -- array of product IDs in this order
-  product_titles TEXT[],               -- array of product titles
-  product_types TEXT[],                -- T-Shirt, Hoodie, etc.
-  collections TEXT[],                  -- billiards, bowling, darts, etc.
-  
-  -- Customer data
-  customer_email TEXT,
+  -- Customer
+  customer_email_hash TEXT,    -- SHA256 for privacy
   is_returning_customer BOOLEAN DEFAULT false,
   
-  -- Metadata
-  raw_landing_site TEXT,               -- original URL for debugging
-  created_at TIMESTAMPTZ DEFAULT now(),
+  -- Debug
+  raw_landing_page TEXT,
+  raw_referrer_url TEXT,
+  journey_ready BOOLEAN,
   
+  created_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(profile_id, shopify_order_id)
 );
 
-CREATE INDEX idx_oa_profile_date ON order_attribution(profile_id, order_date);
-CREATE INDEX idx_oa_campaign ON order_attribution(utm_campaign);
-CREATE INDEX idx_oa_collections ON order_attribution USING GIN(collections);
-CREATE INDEX idx_oa_customer ON order_attribution(customer_email);
+CREATE INDEX idx_oa_profile_date ON order_attributions(profile_id, order_date);
+CREATE INDEX idx_oa_campaign ON order_attributions(utm_campaign);
+CREATE INDEX idx_oa_source ON order_attributions(utm_source);
 ```
 
-### Table: customer_ltv (Phase 2)
+### Table: order_attribution_items (line-item level)
 
 ```sql
-CREATE TABLE customer_ltv (
+CREATE TABLE order_attribution_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_attribution_id UUID REFERENCES order_attributions(id) ON DELETE CASCADE,
+  
+  -- Product
+  shopify_product_id TEXT,
+  sku TEXT,
+  product_title TEXT,
+  product_type TEXT,           -- T-Shirt, Hoodie, etc.
+  quantity INTEGER NOT NULL DEFAULT 1,
+  item_revenue DECIMAL(10,2) NOT NULL,
+  
+  -- Collection mapping
+  collection_key TEXT,         -- billiards, bowling, darts, fishing, other
+  
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_oai_order ON order_attribution_items(order_attribution_id);
+CREATE INDEX idx_oai_collection ON order_attribution_items(collection_key);
+CREATE INDEX idx_oai_product ON order_attribution_items(shopify_product_id);
+```
+
+### Table: product_collection_cache
+
+```sql
+CREATE TABLE product_collection_cache (
+  shopify_product_id TEXT PRIMARY KEY,
   profile_id UUID REFERENCES business_profiles(id),
-  customer_email TEXT NOT NULL,
   
-  total_orders INTEGER DEFAULT 0,
-  total_revenue DECIMAL(10,2) DEFAULT 0,
-  first_order_date DATE,
-  last_order_date DATE,
+  canonical_collection TEXT,   -- billiards, bowling, darts, fishing, other
+  product_type TEXT,           -- T-Shirt, Hoodie, Hat
+  tags TEXT[],
   
-  -- Attribution
-  first_touch_campaign TEXT,           -- campaign that acquired this customer
-  first_touch_source TEXT,             -- utm_source of first order
-  acquisition_cost DECIMAL(10,2),      -- estimated CPA from that campaign
-  
-  -- Computed
-  ltv_to_cac_ratio DECIMAL(5,2),       -- LTV / CAC
-  avg_order_value DECIMAL(10,2),
-  purchase_frequency DECIMAL(5,2),     -- orders per month
-  
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  
-  UNIQUE(profile_id, customer_email)
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 ```
 
----
+### Materialized View: collection_performance_mv
 
-## Câu Hỏi Mở Cho May
+```sql
+CREATE MATERIALIZED VIEW collection_performance_mv AS
+SELECT
+  oai.collection_key,
+  oa.order_date,
+  oa.utm_campaign,
+  
+  -- Revenue
+  SUM(oai.item_revenue) AS collection_revenue,
+  COUNT(DISTINCT oa.shopify_order_id) AS order_count,
+  COUNT(oai.id) AS items_sold,
+  
+  -- Revenue share for spend allocation
+  SUM(oai.item_revenue) / NULLIF(
+    SUM(SUM(oai.item_revenue)) OVER (PARTITION BY oa.utm_campaign, oa.order_date), 0
+  ) AS revenue_share_in_campaign
 
-> [!IMPORTANT]
-> Những điểm dưới đây cần May review và đưa ra phiên bản tối ưu:
+FROM order_attribution_items oai
+JOIN order_attributions oa ON oa.id = oai.order_attribution_id
+WHERE oa.attribution_type != 'unattributed'
+GROUP BY oai.collection_key, oa.order_date, oa.utm_campaign;
 
-### 1. UTM vs Shopify Order Attribution App
-Có nên dùng Shopify native "Order attribution" (nếu plan hỗ trợ) thay vì tự parse UTM? Ưu/nhược?
-
-### 2. Facebook CAPI (Conversions API)
-Facebook CAPI gửi event mua hàng kèm product data. Có nên tận dụng data từ CAPI thay vì match UTM? Có thể reliable hơn không?
-
-### 3. Ad-level vs Campaign-level sync
-Hiện AdPilot sync ở campaign level. Feature này cần ad-level data để match UTM content. Sync ad-level sẽ tăng API calls ~10-50x. Acceptable cho Frenzidea scale không?
-
-### 4. Collection mapping strategy
-Store có 5-7k products. Cách nào tốt nhất để map product → collection?
-- Option A: Dùng `product_type` field (Shopify native)
-- Option B: Dùng product tags (flexible nhưng messy)
-- Option C: Dùng collection membership (chính xác nhất nhưng cần thêm API call)
-
-### 5. Phase 1 trước hay cả 2 phase cùng lúc?
-Phase 1 (product attribution) có giá trị standalone không? Hay phải có Phase 2 (LTV) mới thực sự useful?
-
-### 6. UI Dashboard priority
-Dashboard nào build trước?
-- A) Collection P&L (billiard: revenue $X, spend $Y, profit $Z)
-- B) Product Top 10 per campaign
-- C) Customer LTV cohort
+CREATE UNIQUE INDEX idx_cpmv ON collection_performance_mv(collection_key, order_date, utm_campaign);
+```
 
 ---
 
-> **Action**: May đọc SRS này, review architecture, trả lời 6 câu hỏi mở, và đề xuất phiên bản tối ưu trước khi bắt đầu code.
+## 8. PHÂN PHA TRIỂN KHAI
+
+### Phase 0: Data Quality Audit (0.5 ngày)
+
+| # | Task | Output |
+|---|------|--------|
+| 0.1 | Script/endpoint audit 7 ngày orders | Report: % attributed, % UTM, % collection mapped |
+| 0.2 | Owner confirm UTM convention | Documented UTM standard |
+| 0.3 | Owner confirm product taxonomy | Collection mapping verified |
+| 0.4 | **Gate**: attribution coverage > 50% | GO/NO-GO decision |
+
+### Phase 1: Product Attribution (2-3 ngày)
+
+| # | Task | File |
+|---|------|------|
+| 1.1 | Migration: 3 tables + materialized view | `supabase/migrate_product_attribution.sql` |
+| 1.2 | Update ORDERS_QUERY: thêm customerJourneySummary + product collections | `src/lib/shopify.ts` |
+| 1.3 | UTM parser + attribution logic | `src/lib/attribution.ts` [NEW] |
+| 1.4 | Collection mapper + cache | `src/lib/collection-mapper.ts` [NEW] |
+| 1.5 | Tích hợp vào Shopify sync | `src/app/api/shopify/sync/route.ts` |
+| 1.6 | API: Collection P&L | `src/app/api/shopify/collections/route.ts` [NEW] |
+| 1.7 | UI: Collection Performance Dashboard | `src/app/dashboard/` |
+| 1.8 | Feature flag: `enable_attribution` | Config |
+
+### Phase 2: Customer LTV (3-5 ngày, sau Phase 1 proven)
+
+| # | Task |
+|---|------|
+| 2.1 | customer_ltv table + aggregation |
+| 2.2 | First-touch campaign attribution |
+| 2.3 | LTV/CAC ratio calculation |
+| 2.4 | Customer cohort dashboard |
+| 2.5 | AI budget allocation suggestions |
+
+---
+
+## 9. VERIFY
+
+### Automated Tests
+- [ ] UTM parser: extract campaign_id, ad_id from customerJourneySummary
+- [ ] Collection mapper: product → collection_key
+- [ ] Spend allocation: no double-count in multi-product orders
+- [ ] Attribution status: unattributed orders handled gracefully
+- [ ] Build passes: `npm run build`
+
+### Manual Verification
+- [ ] Phase 0 audit report generates correctly
+- [ ] Test order with UTM → verify attribution record
+- [ ] Collection P&L dashboard shows correct revenue/spend split
+- [ ] Organic orders marked as `unattributed`
+
+---
+
+## 10. ROLLBACK
+
+```sql
+DROP MATERIALIZED VIEW IF EXISTS collection_performance_mv;
+DROP TABLE IF EXISTS order_attribution_items;
+DROP TABLE IF EXISTS order_attributions;
+DROP TABLE IF EXISTS product_collection_cache;
+```
+
+Feature flag OFF → sync runs without attribution, no side effects on existing flow.
+
+---
+
+## PHỤ LỤC A: Hướng Dẫn Setup UTM cho Facebook Ads
+
+> **QUAN TRỌNG**: Feature Attribution SẼ KHÔNG HOẠT ĐỘNG nếu Facebook Ads không có UTM parameters đúng.
+
+### Bước 1: Vào Facebook Ads Manager
+
+1. Mở https://business.facebook.com
+2. Chọn Ad Account của Frenzidea
+3. Vào **Campaigns** → chọn campaign đang chạy
+
+### Bước 2: Edit Ad — URL Parameters
+
+Với MỖI ad đang chạy:
+
+1. Click **Edit** trên ad
+2. Scroll xuống phần **Tracking**
+3. Tìm ô **URL Parameters**
+4. Dán đoạn sau vào:
+
+```
+utm_source=facebook&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{ad.id}}&utm_term={{adset.id}}
+```
+
+**Giải thích:**
+- `{{campaign.id}}` → Facebook tự điền campaign ID
+- `{{ad.id}}` → Facebook tự điền ad ID
+- `{{adset.id}}` → Facebook tự điền ad set ID
+- Đây là dynamic parameters, Facebook tự thay thế khi hiển thị ad
+
+### Bước 3: Áp dụng cho tất cả ads
+
+- **Cách nhanh**: Edit ở **Campaign level** → "URL Parameters" sẽ apply cho tất cả ads trong campaign
+- **Cách chắc**: Edit từng ad set hoặc ad
+
+### Bước 4: Verify
+
+Sau khi set xong, click **Preview** trên ad:
+1. Copy link preview
+2. Kiểm tra URL có dạng: `https://frenzidea.com/products/xxx?utm_source=facebook&utm_campaign=12345&utm_content=67890`
+3. Nếu thấy UTM params → ✅ Đúng
+4. Nếu không thấy → kiểm tra lại bước 2
+
+### Lưu ý quan trọng:
+
+- UTM parameters **KHÔNG ảnh hưởng** đến performance ads
+- Chỉ cần set **1 lần** cho mỗi campaign (dynamic params tự update)
+- Ads cũ (đang chạy) cần edit thêm UTM vào
+- Ads mới tạo SAU khi set → tự động có UTM nếu set ở campaign level
+
+---
+
+> **Status**: SRS v1.1 APPROVED (pending Owner UTM setup + Phase 0 audit)
