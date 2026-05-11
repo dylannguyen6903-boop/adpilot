@@ -1,7 +1,7 @@
-# SRS v1.1: Product-Level Attribution Engine cho AdPilot
+# SRS v1.2: Product-Level Attribution Engine cho AdPilot
 
 > **Ticket ID**: ADPILOT-PA-001
-> **Version**: 1.1 (updated theo May review TKT-00233)
+> **Version**: 1.2 (updated: adapt UTM hiện tại, không re-publish ads)
 > **Ngày tạo**: 2026-05-10
 > **Ngày cập nhật**: 2026-05-11
 > **Tạo bởi**: Antigravity (Windows Agent)
@@ -10,15 +10,21 @@
 
 ---
 
-## Changelog v1.0 → v1.1
+## Changelog
 
+### v1.1 (May review)
 - ✅ Sửa data source: `customerJourneySummary` thay vì `order.landingSite` (May P1)
 - ✅ Tách `order_attribution` thành 2 tables: order-level + line-item level (May P2)
 - ✅ `collection_performance` → materialized view (May P3)
 - ✅ Thêm spend allocation logic (revenue share) (May P4)
 - ✅ Thêm Phase 0: Data Quality Audit
-- ✅ Thêm UTM Setup Guide cho Facebook Ads
-- ✅ Thêm cost analysis
+
+### v1.2 (Owner feedback)
+- ✅ Adapt UTM hiện tại: `utm_source={{campaign.name}}` (KHÔNG re-publish ads)
+- ✅ Matching strategy: campaign name → campaign_snapshots (thay vì campaign ID)
+- ✅ Granularity: campaign-level (đủ cho Collection P&L)
+- ✅ Bỏ requirement setup UTM mới cho ads đang chạy
+- ✅ Ads mới tạo sau này: khuyến nghị UTM chuẩn nhưng không bắt buộc
 
 ---
 
@@ -112,11 +118,32 @@ Shopify daily_financials  ─────┘
 Script chạy 1 lần → fetch 7 ngày orders gần nhất → report:
 - Tổng orders
 - % orders có customerJourneySummary.ready = true
-- % orders có UTM facebook
+- % orders có utm_source chứa campaign name
+- % campaign names match được với campaign_snapshots
 - % products có collection mapping
 - % orders "unattributed" (không UTM, không referrer)
-→ Nếu attribution coverage < 30% → STOP, fix UTM trước
+→ Nếu attribution coverage < 30% → STOP, investigate
 → Nếu > 50% → GO, proceed Phase 1
+```
+
+### UTM Matching Strategy (v1.2)
+
+```
+Owner's existing UTM: utm_source={{campaign.name}}
+
+Matching flow:
+  Order.customerJourneySummary.firstVisit.utmParameters.source
+  → "Summer Billiard 2026"  (campaign NAME)
+  → Normalize: lowercase, trim
+  → Match against: campaign_snapshots.campaign_name (normalized)
+  → Found? → campaign_id, spend data
+  → Not found? → mark as 'utm_unmatched', log for review
+
+Fallback chain:
+  1. utm_source → campaign name match
+  2. customerJourneySummary.firstVisit.source (e.g. "facebook")
+  3. referrerUrl contains "facebook.com"
+  4. None → 'unattributed'
 ```
 
 ### Phase 1: Product Attribution (sau Phase 0 pass)
@@ -129,10 +156,9 @@ Step 1: Shopify sync fetches orders + customerJourneySummary
           lastVisit { ... }
         }
 
-Step 2: Parse UTM from customerJourneySummary (NOT raw URL)
-        utm_campaign → campaign_id
-        utm_content → ad_id
-        utm_term → adset_id
+Step 2: Parse UTM from customerJourneySummary
+        utm_source → campaign name → lookup campaign_id from campaign_snapshots
+        (Fallback: source field, referrerUrl)
 
 Step 3: Fetch lineItems with product details
         lineItems { product { id, productType, collections(first:3) { edges { node { title } } } } }
@@ -243,14 +269,16 @@ CREATE TABLE order_attributions (
   total_revenue DECIMAL(10,2) NOT NULL,
   
   -- Attribution (from customerJourneySummary)
-  utm_source TEXT,
+  utm_source TEXT,              -- {{campaign.name}} value
   utm_medium TEXT,
-  utm_campaign TEXT,           -- → campaign_id
-  utm_content TEXT,            -- → ad_id
-  utm_term TEXT,               -- → adset_id
+  utm_campaign TEXT,
+  utm_content TEXT,
+  utm_term TEXT,
   attribution_type TEXT DEFAULT 'unattributed',
-    -- 'utm_first_visit', 'utm_last_visit', 'referrer', 'unattributed'
+    -- 'utm_campaign_name', 'utm_first_visit', 'referrer', 'source_facebook', 'unattributed'
   attribution_source TEXT,     -- raw source from customerJourneySummary
+  matched_campaign_id TEXT,    -- resolved campaign_id from campaign_snapshots
+  matched_campaign_name TEXT,  -- normalized campaign name used for matching
   
   -- Customer
   customer_email_hash TEXT,    -- SHA256 for privacy
@@ -406,55 +434,33 @@ Feature flag OFF → sync runs without attribution, no side effects on existing 
 
 ---
 
-## PHỤ LỤC A: Hướng Dẫn Setup UTM cho Facebook Ads
+## PHỤ LỤC A: UTM Strategy
 
-> **QUAN TRỌNG**: Feature Attribution SẼ KHÔNG HOẠT ĐỘNG nếu Facebook Ads không có UTM parameters đúng.
+### Ads đang chạy (6 campaigns active)
 
-### Bước 1: Vào Facebook Ads Manager
-
-1. Mở https://business.facebook.com
-2. Chọn Ad Account của Frenzidea
-3. Vào **Campaigns** → chọn campaign đang chạy
-
-### Bước 2: Edit Ad — URL Parameters
-
-Với MỖI ad đang chạy:
-
-1. Click **Edit** trên ad
-2. Scroll xuống phần **Tracking**
-3. Tìm ô **URL Parameters**
-4. Dán đoạn sau vào:
-
+**KHÔNG ĐỤNG.** Dùng UTM hiện tại:
 ```
-utm_source=facebook&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{ad.id}}&utm_term={{adset.id}}
+utm_source={{campaign.name}}
 ```
 
-**Giải thích:**
-- `{{campaign.id}}` → Facebook tự điền campaign ID
-- `{{ad.id}}` → Facebook tự điền ad ID
-- `{{adset.id}}` → Facebook tự điền ad set ID
-- Đây là dynamic parameters, Facebook tự thay thế khi hiển thị ad
+AdPilot sẽ match `utm_source` value với `campaign_snapshots.campaign_name` để resolve campaign_id.
 
-### Bước 3: Áp dụng cho tất cả ads
+### Ads mới tạo sau này (khuyến nghị)
 
-- **Cách nhanh**: Edit ở **Campaign level** → "URL Parameters" sẽ apply cho tất cả ads trong campaign
-- **Cách chắc**: Edit từng ad set hoặc ad
+Khi tạo campaign mới, set UTM đầy đủ hơn để có ad-level attribution:
+```
+utm_source=facebook&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.id}}&utm_term={{adset.id}}
+```
 
-### Bước 4: Verify
+Parser sẽ tự detect và dùng format nào có sẵn.
 
-Sau khi set xong, click **Preview** trên ad:
-1. Copy link preview
-2. Kiểm tra URL có dạng: `https://frenzidea.com/products/xxx?utm_source=facebook&utm_campaign=12345&utm_content=67890`
-3. Nếu thấy UTM params → ✅ Đúng
-4. Nếu không thấy → kiểm tra lại bước 2
+### Campaign Name Convention
 
-### Lưu ý quan trọng:
-
-- UTM parameters **KHÔNG ảnh hưởng** đến performance ads
-- Chỉ cần set **1 lần** cho mỗi campaign (dynamic params tự update)
-- Ads cũ (đang chạy) cần edit thêm UTM vào
-- Ads mới tạo SAU khi set → tự động có UTM nếu set ở campaign level
+Để matching chính xác, campaign names trên Facebook Ads nên:
+- Không đổi tên campaign sau khi tạo (sẽ break matching với orders cũ)
+- Tên campaign PHẢI unique giữa các ad accounts
+- Nếu đổi tên: AdPilot cần re-map (manual)
 
 ---
 
-> **Status**: SRS v1.1 APPROVED (pending Owner UTM setup + Phase 0 audit)
+> **Status**: SRS v1.2 APPROVED (zero disruption to running ads, Phase 0 audit next)
