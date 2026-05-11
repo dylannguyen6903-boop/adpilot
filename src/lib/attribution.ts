@@ -39,7 +39,7 @@ export interface OrderAttribution {
   matched_campaign_id: string | null;
   matched_campaign_name: string | null;
   
-  customer_email_hash: string | null;
+  customer_email: string | null;  // SHA-256 hash per SRS v1.2 (stored in customer_email column until DB migration)
   is_returning_customer: boolean;
   
   raw_landing_page: string | null;
@@ -303,7 +303,7 @@ export async function attributeOrder(
     attribution_source: source,
     matched_campaign_id: matchedCampaignId,
     matched_campaign_name: matchedCampaignName,
-    customer_email_hash: await hashEmail(order.customer?.email),
+    customer_email: await hashEmail(order.customer?.email),  // SHA-256 hash per SRS v1.2
     is_returning_customer: customerOrders > 1,
     raw_landing_page: firstVisit?.landingPage || null,
     raw_referrer_url: referrer,
@@ -360,7 +360,7 @@ export async function persistAttributions(attributions: OrderAttribution[]): Pro
     attribution_source: attr.attribution_source,
     matched_campaign_id: attr.matched_campaign_id,
     matched_campaign_name: attr.matched_campaign_name,
-    customer_email_hash: attr.customer_email_hash,
+    customer_email: attr.customer_email,
     is_returning_customer: attr.is_returning_customer,
     raw_landing_page: attr.raw_landing_page,
     raw_referrer_url: attr.raw_referrer_url,
