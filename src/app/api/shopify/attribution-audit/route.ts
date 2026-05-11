@@ -169,7 +169,7 @@ export async function GET() {
     let cursor: string | null = null;
 
     while (hasNextPage && allOrders.length < 200) {
-      const response = await fetch(url, {
+      const response: Response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
