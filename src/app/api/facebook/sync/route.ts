@@ -149,25 +149,49 @@ export async function POST(request: NextRequest) {
     let syncedCount = 0;
     const snapshotsToUpsert: Record<string, unknown>[] = [];
 
-    for (const campaign of allCampaigns) {
+    // Map all campaigns from fetchCampaigns
+    const campaignMap = new Map<string, FBCampaign>();
+    for (const c of allCampaigns) {
+      campaignMap.set(c.id, c);
+    }
+
+    // Add any campaigns found in insights that weren't in allCampaigns (e.g. ARCHIVED/DELETED)
+    for (const i of allInsights) {
+      if (!campaignMap.has(i.campaign_id)) {
+        campaignMap.set(i.campaign_id, {
+          id: i.campaign_id,
+          name: i.campaign_name,
+          objective: 'UNKNOWN',
+          status: 'ARCHIVED', // Assume archived if it wasn't fetched
+          created_time: '',
+          updated_time: '',
+          ad_account_id: accountsToSync.find(a => allInsights.some(ins => ins.campaign_id === i.campaign_id))?.adAccountId, // Not perfect but ad_account_id is derived differently anyway
+        });
+      }
+    }
+
+    // Now iterate over all unique campaigns
+    for (const campaign of campaignMap.values()) {
       const insightsForCampaign = allInsights.filter(i => i.campaign_id === campaign.id);
       const dailyBudget = parseFBBudget(campaign.daily_budget);
 
       if (insightsForCampaign.length === 0) {
-        // No insights — save a zero-spend snapshot for today
-        snapshotsToUpsert.push({
-          campaign_id: campaign.id,
-          campaign_name: campaign.name,
-          snapshot_date: today,
-          snapshot_hour: 0,
-          daily_budget: dailyBudget,
-          spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue_fb: 0,
-          cpa: null, ctr: 0, cpm: 0, cpc: 0, roas_fb: null, reach: 0, frequency: 0,
-          fb_status: campaign.status || 'ACTIVE',
-          effective_status: campaign.status || 'ACTIVE',
-          campaign_created_time: campaign.created_time || null,
-          ad_account_id: campaign.ad_account_id,
-        });
+        // No insights — save a zero-spend snapshot for today (only if ACTIVE/PAUSED)
+        if (campaign.status === 'ACTIVE' || campaign.status === 'PAUSED') {
+          snapshotsToUpsert.push({
+            campaign_id: campaign.id,
+            campaign_name: campaign.name,
+            snapshot_date: today,
+            snapshot_hour: 0,
+            daily_budget: dailyBudget,
+            spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue_fb: 0,
+            cpa: null, ctr: 0, cpm: 0, cpc: 0, roas_fb: null, reach: 0, frequency: 0,
+            fb_status: campaign.status,
+            effective_status: campaign.status,
+            campaign_created_time: campaign.created_time || null,
+            ad_account_id: campaign.ad_account_id,
+          });
+        }
         continue;
       }
 
@@ -192,8 +216,6 @@ export async function POST(request: NextRequest) {
           conversions,
           revenue_fb: revenueFb,
           cpa,
-          ctr: parseFloat(insight.ctr),
-          cpm: parseFloat(insight.cpm),
           cpc: insight.cpc ? parseFloat(insight.cpc) : 0,
           roas_fb: roas,
           reach: parseInt(insight.reach, 10),
@@ -204,7 +226,7 @@ export async function POST(request: NextRequest) {
           fb_status: campaign.status || 'ACTIVE',
           effective_status: campaign.status || 'ACTIVE',
           campaign_created_time: campaign.created_time || null,
-          ad_account_id: campaign.ad_account_id,
+          ad_account_id: campaign.ad_account_id || accountsToSync[0]?.adAccountId, // Fallback if missing
         });
       }
     }
