@@ -10,15 +10,13 @@ export const maxDuration = 120;
 
 /**
  * GET /api/shopify/attribution-audit
- * Phase 0: Data Quality Audit for Product Attribution
+ * Phase 0 v2: Data Quality Audit for Product Attribution
  * 
- * Checks:
- * 1. How many orders in last 7 days
- * 2. % orders with customerJourneySummary.ready
- * 3. % orders with utm_source containing campaign name
- * 4. % campaign names matched against campaign_snapshots
- * 5. % orders unattributed
- * 6. Duplicate campaign name check across accounts
+ * Updated per May TKT-00238:
+ * - Primary match: utm_campaign (numeric ID) → campaign_snapshots.campaign_id
+ * - Secondary match: utm_source (campaign name) → campaign_snapshots.campaign_name
+ * - Coverage breakdown by method: id_match, name_match, unmatched, facebook_only, unattributed
+ * - Includes all 30-day campaigns (not just recent snapshots)
  */
 
 const AUDIT_QUERY = `
@@ -107,9 +105,11 @@ interface AuditOrder {
   };
 }
 
+type MatchMethod = 'id_match' | 'name_match' | 'duplicate_ambiguous' | 'unmatched' | 'facebook_only' | 'unattributed';
+
 function normalize(s: string | null | undefined): string {
   if (!s) return '';
-  return s.toLowerCase().trim().replace(/\s+/g, ' ');
+  return decodeURIComponent(s).toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 export async function GET() {
@@ -121,24 +121,29 @@ export async function GET() {
       return NextResponse.json({ error: 'Shopify not configured' }, { status: 400 });
     }
 
-    // Fetch campaign names from campaign_snapshots for matching
+    // Fetch ALL campaigns from campaign_snapshots (30+ days)
     const { data: campaigns } = await supabaseAdmin
       .from('campaign_snapshots')
       .select('campaign_id, campaign_name')
       .order('snapshot_date', { ascending: false })
-      .limit(200);
+      .limit(500);
 
+    // Build ID set and name→IDs map
+    const campaignIdSet = new Set<string>();
     const campaignNameMap = new Map<string, string[]>();
     const campaignNames = new Set<string>();
+
     for (const c of campaigns || []) {
+      if (c.campaign_id) campaignIdSet.add(String(c.campaign_id));
+      
       const normalized = normalize(c.campaign_name);
       if (normalized) {
         campaignNames.add(normalized);
         if (!campaignNameMap.has(normalized)) {
           campaignNameMap.set(normalized, []);
         }
-        if (!campaignNameMap.get(normalized)!.includes(c.campaign_id)) {
-          campaignNameMap.get(normalized)!.push(c.campaign_id);
+        if (!campaignNameMap.get(normalized)!.includes(String(c.campaign_id))) {
+          campaignNameMap.get(normalized)!.push(String(c.campaign_id));
         }
       }
     }
@@ -147,7 +152,7 @@ export async function GET() {
     const duplicateNames: string[] = [];
     for (const [name, ids] of campaignNameMap) {
       if (ids.length > 1) {
-        duplicateNames.push(`"${name}" → ${ids.length} campaign IDs`);
+        duplicateNames.push(`"${name}" → ${ids.length} IDs: [${ids.join(', ')}]`);
       }
     }
 
@@ -163,7 +168,7 @@ export async function GET() {
     let hasNextPage = true;
     let cursor: string | null = null;
 
-    while (hasNextPage && allOrders.length < 100) {
+    while (hasNextPage && allOrders.length < 200) {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -185,12 +190,8 @@ export async function GET() {
       }
 
       const json = await response.json();
-      
       if (json.errors) {
-        return NextResponse.json({
-          error: 'GraphQL errors',
-          errors: json.errors,
-        }, { status: 500 });
+        return NextResponse.json({ error: 'GraphQL errors', errors: json.errors }, { status: 500 });
       }
 
       const edges = json.data?.orders?.edges || [];
@@ -201,21 +202,23 @@ export async function GET() {
       cursor = json.data?.orders?.pageInfo?.endCursor || null;
     }
 
-    // Analyze orders
+    // === ANALYZE ORDERS (Multi-method matching) ===
     let journeyReady = 0;
-    let hasUtmSource = 0;
-    let utmMatchedCampaign = 0;
-    let utmUnmatched = 0;
-    let sourceFacebook = 0;
-    let referrerFacebook = 0;
-    let fullyUnattributed = 0;
     let totalRevenue = 0;
-    let attributedRevenue = 0;
+    const methodCounts: Record<MatchMethod, number> = {
+      id_match: 0, name_match: 0, duplicate_ambiguous: 0,
+      unmatched: 0, facebook_only: 0, unattributed: 0,
+    };
+    const methodRevenue: Record<MatchMethod, number> = {
+      id_match: 0, name_match: 0, duplicate_ambiguous: 0,
+      unmatched: 0, facebook_only: 0, unattributed: 0,
+    };
 
+    const utmCampaignValues: Record<string, number> = {};
     const utmSourceValues: Record<string, number> = {};
-    const sourceValues: Record<string, number> = {};
     const productTypes: Record<string, number> = {};
-    const unmatchedUtmSources: string[] = [];
+    const unmatchedDetails: Array<{ utm_source: string; utm_campaign: string; orders: number; revenue: number }> = [];
+    const unmatchedMap = new Map<string, { orders: number; revenue: number }>();
 
     for (const order of allOrders) {
       const revenue = parseFloat(order.totalPriceSet.shopMoney.amount);
@@ -225,48 +228,58 @@ export async function GET() {
       const firstVisit = journey?.firstVisit;
       const utm = firstVisit?.utmParameters;
 
-      // Check journey ready
       if (journey?.ready) journeyReady++;
 
-      // Check utm_source
-      const utmSource = utm?.source;
-      if (utmSource) {
-        hasUtmSource++;
-        const normalized = normalize(utmSource);
-        utmSourceValues[normalized] = (utmSourceValues[normalized] || 0) + 1;
+      const utmCampaign = utm?.campaign || null;
+      const utmSource = utm?.source || null;
+      let matched: MatchMethod = 'unattributed';
 
-        // Try to match against campaign names
-        if (campaignNames.has(normalized)) {
-          utmMatchedCampaign++;
-          attributedRevenue += revenue;
-        } else if (normalized === 'facebook' || normalized === 'fb' || normalized === 'instagram' || normalized === 'ig') {
-          // utm_source is generic "facebook", not a campaign name
-          sourceFacebook++;
-        } else {
-          utmUnmatched++;
-          if (!unmatchedUtmSources.includes(normalized)) {
-            unmatchedUtmSources.push(normalized);
-          }
-        }
-      } else {
-        // No UTM, check source/referrer
-        const source = firstVisit?.source;
-        if (source) {
-          sourceValues[normalize(source)] = (sourceValues[normalize(source)] || 0) + 1;
-          if (source.toLowerCase().includes('facebook') || source.toLowerCase().includes('fb')) {
-            referrerFacebook++;
-          }
-        }
-
-        const referrer = firstVisit?.referrerUrl;
-        if (referrer && referrer.includes('facebook.com')) {
-          referrerFacebook++;
-        }
-
-        if (!source && !referrer) {
-          fullyUnattributed++;
+      // === PRIORITY A: utm_campaign numeric ID → campaign_snapshots.campaign_id ===
+      if (utmCampaign) {
+        const cleanId = String(utmCampaign).trim();
+        utmCampaignValues[cleanId] = (utmCampaignValues[cleanId] || 0) + 1;
+        
+        if (campaignIdSet.has(cleanId)) {
+          matched = 'id_match';
         }
       }
+
+      // === PRIORITY B/C: utm_source or utm_campaign as name → campaign_name ===
+      if (matched === 'unattributed' && utmSource) {
+        const normalizedSource = normalize(utmSource);
+        utmSourceValues[normalizedSource] = (utmSourceValues[normalizedSource] || 0) + 1;
+
+        if (normalizedSource === 'facebook' || normalizedSource === 'fb' || normalizedSource === 'instagram' || normalizedSource === 'ig') {
+          matched = 'facebook_only';
+        } else if (campaignNames.has(normalizedSource)) {
+          const ids = campaignNameMap.get(normalizedSource)!;
+          if (ids.length === 1) {
+            matched = 'name_match';
+          } else {
+            matched = 'duplicate_ambiguous';
+          }
+        } else {
+          matched = 'unmatched';
+          const key = `${normalizedSource}||${utmCampaign || ''}`;
+          const existing = unmatchedMap.get(key) || { orders: 0, revenue: 0 };
+          existing.orders++;
+          existing.revenue += revenue;
+          unmatchedMap.set(key, existing);
+        }
+      } else if (matched === 'unattributed') {
+        // No UTM at all — check source/referrer
+        const source = firstVisit?.source;
+        const referrer = firstVisit?.referrerUrl;
+        if (source?.toLowerCase().includes('facebook') || referrer?.includes('facebook.com')) {
+          matched = 'facebook_only';
+        } else if (source || referrer) {
+          matched = 'unmatched';
+        }
+        // else stays 'unattributed'
+      }
+
+      methodCounts[matched]++;
+      methodRevenue[matched] += revenue;
 
       // Product types
       for (const item of order.lineItems.edges) {
@@ -275,58 +288,88 @@ export async function GET() {
       }
     }
 
-    const totalOrders = allOrders.length;
-    const coveragePercent = totalOrders > 0 ? Math.round((utmMatchedCampaign / totalOrders) * 100) : 0;
+    // Build unmatched details for alias mapping
+    for (const [key, data] of unmatchedMap) {
+      const [source, campaign] = key.split('||');
+      unmatchedDetails.push({
+        utm_source: source,
+        utm_campaign: campaign || '(none)',
+        orders: data.orders,
+        revenue: Math.round(data.revenue * 100) / 100,
+      });
+    }
+    unmatchedDetails.sort((a, b) => b.orders - a.orders);
 
-    // Build report
+    const totalOrders = allOrders.length;
+    const totalAttributed = methodCounts.id_match + methodCounts.name_match;
+    const coveragePercent = totalOrders > 0 ? Math.round((totalAttributed / totalOrders) * 100) : 0;
+    const potentialCoverage = totalOrders > 0 
+      ? Math.round(((totalAttributed + methodCounts.unmatched + methodCounts.facebook_only) / totalOrders) * 100) 
+      : 0;
+
+    // Determine GO/NO-GO
+    let goStatus: string;
+    if (coveragePercent >= 50) {
+      goStatus = '🟢 GO — proceed Phase 1';
+    } else if (potentialCoverage >= 50) {
+      goStatus = '🟡 POTENTIAL GO — need FB re-sync or alias mapping to unlock unmatched orders';
+    } else if (coveragePercent >= 30) {
+      goStatus = '🟡 MARGINAL — investigate unmatched + re-sync FB campaigns';
+    } else {
+      goStatus = '🔴 NO-GO — attribution too low. Re-sync FB campaigns first, then re-audit';
+    }
+
     const report = {
+      audit_version: 'v2 (multi-method)',
       audit_date: new Date().toISOString(),
       period: `Last 7 days (since ${sevenDaysAgo.toISOString().split('T')[0]})`,
-      
+
       // Summary
       total_orders: totalOrders,
       total_revenue: `$${totalRevenue.toFixed(2)}`,
       attribution_coverage_percent: coveragePercent,
-      go_no_go: coveragePercent >= 50 ? '🟢 GO — proceed Phase 1' : coveragePercent >= 30 ? '🟡 MARGINAL — investigate unmatched' : '🔴 NO-GO — attribution too low',
+      potential_coverage_percent: potentialCoverage,
+      go_no_go: goStatus,
 
-      // Attribution breakdown
-      attribution: {
-        journey_ready: `${journeyReady}/${totalOrders} (${totalOrders > 0 ? Math.round(journeyReady/totalOrders*100) : 0}%)`,
-        has_utm_source: `${hasUtmSource}/${totalOrders} (${totalOrders > 0 ? Math.round(hasUtmSource/totalOrders*100) : 0}%)`,
-        utm_matched_campaign: `${utmMatchedCampaign}/${totalOrders} (${coveragePercent}%)`,
-        utm_unmatched: `${utmUnmatched}/${totalOrders}`,
-        source_facebook_generic: `${sourceFacebook}/${totalOrders}`,
-        referrer_facebook: `${referrerFacebook}/${totalOrders}`,
-        fully_unattributed: `${fullyUnattributed}/${totalOrders}`,
-        attributed_revenue: `$${attributedRevenue.toFixed(2)} of $${totalRevenue.toFixed(2)}`,
+      // Coverage by method
+      coverage_by_method: {
+        id_match: { count: methodCounts.id_match, revenue: `$${methodRevenue.id_match.toFixed(2)}`, note: 'utm_campaign ID → campaign_snapshots.campaign_id' },
+        name_match: { count: methodCounts.name_match, revenue: `$${methodRevenue.name_match.toFixed(2)}`, note: 'utm_source name → campaign_snapshots.campaign_name (unique)' },
+        duplicate_ambiguous: { count: methodCounts.duplicate_ambiguous, revenue: `$${methodRevenue.duplicate_ambiguous.toFixed(2)}`, note: 'Name matched but multiple campaign IDs' },
+        unmatched: { count: methodCounts.unmatched, revenue: `$${methodRevenue.unmatched.toFixed(2)}`, note: 'Has UTM but no match in DB. Need FB re-sync or alias' },
+        facebook_only: { count: methodCounts.facebook_only, revenue: `$${methodRevenue.facebook_only.toFixed(2)}`, note: 'Source is facebook but no campaign info' },
+        unattributed: { count: methodCounts.unattributed, revenue: `$${methodRevenue.unattributed.toFixed(2)}`, note: 'No UTM, no source, no referrer' },
       },
 
-      // UTM source values found
-      utm_source_values: utmSourceValues,
-      unmatched_utm_sources: unmatchedUtmSources,
+      // Data for alias mapping (unmatched UTMs)
+      unmatched_for_alias_mapping: unmatchedDetails,
 
-      // Source values (non-UTM)
-      source_values: sourceValues,
+      // Campaign DB stats
+      campaigns_in_db: {
+        unique_ids: campaignIdSet.size,
+        unique_names: campaignNames.size,
+        duplicate_names: duplicateNames.length > 0 ? duplicateNames : 'None ✅',
+      },
 
-      // Campaign matching
-      campaigns_in_db: campaignNames.size,
-      campaign_names_sample: Array.from(campaignNames).slice(0, 10),
-      duplicate_campaign_names: duplicateNames.length > 0 ? duplicateNames : 'None — all unique ✅',
+      // UTM values found in orders
+      utm_campaign_values_in_orders: utmCampaignValues,
+      utm_source_values_in_orders: utmSourceValues,
 
-      // Product types
+      // Readiness metrics
+      journey_ready: `${journeyReady}/${totalOrders} (${totalOrders > 0 ? Math.round(journeyReady/totalOrders*100) : 0}%)`,
       product_types: productTypes,
 
-      // Raw order samples (first 3 for debugging)
-      sample_orders: allOrders.slice(0, 3).map(o => ({
+      // Sample orders (first 5)
+      sample_orders: allOrders.slice(0, 5).map(o => ({
         name: o.name,
         revenue: o.totalPriceSet.shopMoney.amount,
         journey_ready: o.customerJourneySummary?.ready,
         utm_source: o.customerJourneySummary?.firstVisit?.utmParameters?.source,
         utm_campaign: o.customerJourneySummary?.firstVisit?.utmParameters?.campaign,
+        utm_content: o.customerJourneySummary?.firstVisit?.utmParameters?.content,
+        utm_term: o.customerJourneySummary?.firstVisit?.utmParameters?.term,
         source: o.customerJourneySummary?.firstVisit?.source,
-        referrer: o.customerJourneySummary?.firstVisit?.referrerUrl,
-        landing_page: o.customerJourneySummary?.firstVisit?.landingPage,
-        line_items: o.lineItems.edges.map(e => e.node.title).slice(0, 3),
+        referrer: o.customerJourneySummary?.firstVisit?.referrerUrl?.substring(0, 80),
       })),
     };
 
