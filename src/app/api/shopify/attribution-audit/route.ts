@@ -121,42 +121,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Shopify not configured' }, { status: 400 });
     }
 
-    // Fetch ALL campaigns from campaign_snapshots (30+ days)
-    const { data: campaigns } = await supabaseAdmin
-      .from('campaign_snapshots')
-      .select('campaign_id, campaign_name')
-      .order('snapshot_date', { ascending: false })
-      .limit(500);
-
-    // Build ID set and name→IDs map
-    const campaignIdSet = new Set<string>();
-    const campaignNameMap = new Map<string, string[]>();
-    const campaignNames = new Set<string>();
-
-    for (const c of campaigns || []) {
-      if (c.campaign_id) campaignIdSet.add(String(c.campaign_id));
-      
-      const normalized = normalize(c.campaign_name);
-      if (normalized) {
-        campaignNames.add(normalized);
-        if (!campaignNameMap.has(normalized)) {
-          campaignNameMap.set(normalized, []);
-        }
-        if (!campaignNameMap.get(normalized)!.includes(String(c.campaign_id))) {
-          campaignNameMap.get(normalized)!.push(String(c.campaign_id));
-        }
-      }
-    }
-
-    // Check for duplicate campaign names
-    const duplicateNames: string[] = [];
-    for (const [name, ids] of campaignNameMap) {
-      if (ids.length > 1) {
-        duplicateNames.push(`"${name}" → ${ids.length} IDs: [${ids.join(', ')}]`);
-      }
-    }
-
-    // Fetch orders from last 7 days
+    // Fetch orders from last 7 days FIRST to know which campaigns to look for
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const queryStr = `created_at:>='${sevenDaysAgo.toISOString().split('T')[0]}'`;
@@ -200,6 +165,64 @@ export async function GET() {
       }
       hasNextPage = json.data?.orders?.pageInfo?.hasNextPage || false;
       cursor = json.data?.orders?.pageInfo?.endCursor || null;
+    }
+
+    // Extract unique campaign IDs and names from orders
+    const orderCampaignIds = new Set<string>();
+    const orderCampaignNames = new Set<string>();
+    for (const order of allOrders) {
+      const utm = order.customerJourneySummary?.firstVisit?.utmParameters;
+      if (utm?.campaign) orderCampaignIds.add(String(utm.campaign).trim());
+      if (utm?.source) {
+         const norm = normalize(utm.source);
+         if (norm && norm !== 'facebook' && norm !== 'fb' && norm !== 'ig' && norm !== 'instagram') {
+             orderCampaignNames.add(norm);
+         }
+      }
+    }
+
+    // Fetch campaigns matching the IDs
+    const idList = Array.from(orderCampaignIds);
+    const { data: idCampaigns } = idList.length > 0 
+      ? await supabaseAdmin.from('campaign_snapshots').select('campaign_id, campaign_name').in('campaign_id', idList)
+      : { data: [] };
+
+    // For names, because PostgREST .in() fails with commas, we fetch all campaigns with a high limit 
+    // to capture name-based matches. Since this is just an audit, taking 50000 rows is okay.
+    const { data: nameCampaigns } = await supabaseAdmin
+      .from('campaign_snapshots')
+      .select('campaign_id, campaign_name')
+      .order('snapshot_date', { ascending: false })
+      .limit(50000);
+
+    const campaigns = [...(idCampaigns || []), ...(nameCampaigns || [])];
+
+    // Build ID set and name→IDs map
+    const campaignIdSet = new Set<string>();
+    const campaignNameMap = new Map<string, string[]>();
+    const campaignNames = new Set<string>();
+
+    for (const c of campaigns) {
+      if (c.campaign_id) campaignIdSet.add(String(c.campaign_id));
+      
+      const normalized = normalize(c.campaign_name);
+      if (normalized) {
+        campaignNames.add(normalized);
+        if (!campaignNameMap.has(normalized)) {
+          campaignNameMap.set(normalized, []);
+        }
+        if (!campaignNameMap.get(normalized)!.includes(String(c.campaign_id))) {
+          campaignNameMap.get(normalized)!.push(String(c.campaign_id));
+        }
+      }
+    }
+
+    // Check for duplicate campaign names
+    const duplicateNames: string[] = [];
+    for (const [name, ids] of campaignNameMap) {
+      if (ids.length > 1) {
+        duplicateNames.push(`"${name}" → ${ids.length} IDs: [${ids.join(', ')}]`);
+      }
     }
 
     // === ANALYZE ORDERS (Multi-method matching) ===
