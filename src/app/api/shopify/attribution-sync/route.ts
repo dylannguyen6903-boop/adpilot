@@ -231,3 +231,18 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 }
+
+// GET handler for browser-triggered sync (bypasses Vercel deployment protection)
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const days = parseInt(url.searchParams.get('days') || '7', 10);
+  
+  // Create a fake request with the days parameter
+  const fakeRequest = new Request(request.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ days: Math.min(Math.max(days, 1), 90) }),
+  });
+  
+  return POST(fakeRequest);
+}
