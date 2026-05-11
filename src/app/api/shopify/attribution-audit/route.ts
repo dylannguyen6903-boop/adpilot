@@ -105,7 +105,7 @@ interface AuditOrder {
   };
 }
 
-type MatchMethod = 'id_match' | 'name_match' | 'duplicate_ambiguous' | 'unmatched' | 'facebook_only' | 'unattributed';
+type MatchMethod = 'id_match' | 'name_match' | 'duplicate_ambiguous' | 'unmatched' | 'facebook_only' | 'google_ads' | 'organic_direct' | 'unattributed';
 
 function normalize(s: string | null | undefined): string {
   if (!s) return '';
@@ -230,11 +230,11 @@ export async function GET() {
     let totalRevenue = 0;
     const methodCounts: Record<MatchMethod, number> = {
       id_match: 0, name_match: 0, duplicate_ambiguous: 0,
-      unmatched: 0, facebook_only: 0, unattributed: 0,
+      unmatched: 0, facebook_only: 0, google_ads: 0, organic_direct: 0, unattributed: 0,
     };
     const methodRevenue: Record<MatchMethod, number> = {
       id_match: 0, name_match: 0, duplicate_ambiguous: 0,
-      unmatched: 0, facebook_only: 0, unattributed: 0,
+      unmatched: 0, facebook_only: 0, google_ads: 0, organic_direct: 0, unattributed: 0,
     };
 
     const utmCampaignValues: Record<string, number> = {};
@@ -274,6 +274,15 @@ export async function GET() {
 
         if (normalizedSource === 'facebook' || normalizedSource === 'fb' || normalizedSource === 'instagram' || normalizedSource === 'ig') {
           matched = 'facebook_only';
+        } else if (normalizedSource === 'google' || normalizedSource === 'google ads' || normalizedSource === 'google_ads') {
+          matched = 'google_ads';
+          const key = `${normalizedSource}||${utmCampaign || ''}`;
+          const existing = unmatchedMap.get(key) || { orders: 0, revenue: 0 };
+          existing.orders++;
+          existing.revenue += revenue;
+          unmatchedMap.set(key, existing);
+        } else if (normalizedSource === 'shop_app' || normalizedSource === 'shopify') {
+          matched = 'organic_direct';
         } else if (campaignNames.has(normalizedSource)) {
           const ids = campaignNameMap.get(normalizedSource)!;
           if (ids.length === 1) {
@@ -290,13 +299,15 @@ export async function GET() {
           unmatchedMap.set(key, existing);
         }
       } else if (matched === 'unattributed') {
-        // No UTM at all — check source/referrer
+        // No UTM at all - check source/referrer
         const source = firstVisit?.source;
         const referrer = firstVisit?.referrerUrl;
         if (source?.toLowerCase().includes('facebook') || referrer?.includes('facebook.com')) {
           matched = 'facebook_only';
+        } else if (source?.toLowerCase().includes('google') || referrer?.includes('google.com')) {
+          matched = 'google_ads';
         } else if (source || referrer) {
-          matched = 'unmatched';
+          matched = 'organic_direct';
         }
         // else stays 'unattributed'
       }
@@ -326,42 +337,46 @@ export async function GET() {
     const totalOrders = allOrders.length;
     const totalAttributed = methodCounts.id_match + methodCounts.name_match;
     const coveragePercent = totalOrders > 0 ? Math.round((totalAttributed / totalOrders) * 100) : 0;
-    const potentialCoverage = totalOrders > 0 
-      ? Math.round(((totalAttributed + methodCounts.unmatched + methodCounts.facebook_only) / totalOrders) * 100) 
-      : 0;
 
-    // Determine GO/NO-GO
+    // Paid FB traffic = orders that came from Facebook ads (matched + unmatched + fb_only)
+    const paidFbOrders = methodCounts.id_match + methodCounts.name_match + methodCounts.duplicate_ambiguous + methodCounts.unmatched + methodCounts.facebook_only;
+    const paidFbMatched = methodCounts.id_match + methodCounts.name_match;
+    const paidFbCoverage = paidFbOrders > 0 ? Math.round((paidFbMatched / paidFbOrders) * 100) : 0;
+
+    // Determine GO/NO-GO based on paid FB coverage (the meaningful metric)
     let goStatus: string;
-    if (coveragePercent >= 50) {
-      goStatus = '🟢 GO — proceed Phase 1';
-    } else if (potentialCoverage >= 50) {
-      goStatus = '🟡 POTENTIAL GO — need FB re-sync or alias mapping to unlock unmatched orders';
+    if (paidFbCoverage >= 50) {
+      goStatus = `🟢 GO — paid FB attribution ${paidFbCoverage}% (${paidFbMatched}/${paidFbOrders} FB orders matched). Proceed Phase 1`;
     } else if (coveragePercent >= 30) {
-      goStatus = '🟡 MARGINAL — investigate unmatched + re-sync FB campaigns';
+      goStatus = '🟡 MARGINAL — investigate unmatched FB campaigns';
     } else {
-      goStatus = '🔴 NO-GO — attribution too low. Re-sync FB campaigns first, then re-audit';
+      goStatus = '🔴 NO-GO — attribution too low. Re-sync FB campaigns first';
     }
 
     const report = {
-      audit_version: 'v2 (multi-method)',
+      audit_version: 'v3 (multi-method + traffic classification)',
       audit_date: new Date().toISOString(),
       period: `Last 7 days (since ${sevenDaysAgo.toISOString().split('T')[0]})`,
 
       // Summary
       total_orders: totalOrders,
       total_revenue: `$${totalRevenue.toFixed(2)}`,
-      attribution_coverage_percent: coveragePercent,
-      potential_coverage_percent: potentialCoverage,
+      overall_coverage_percent: coveragePercent,
+      paid_fb_coverage_percent: paidFbCoverage,
+      paid_fb_orders: paidFbOrders,
+      paid_fb_matched: paidFbMatched,
       go_no_go: goStatus,
 
       // Coverage by method
       coverage_by_method: {
-        id_match: { count: methodCounts.id_match, revenue: `$${methodRevenue.id_match.toFixed(2)}`, note: 'utm_campaign ID → campaign_snapshots.campaign_id' },
-        name_match: { count: methodCounts.name_match, revenue: `$${methodRevenue.name_match.toFixed(2)}`, note: 'utm_source name → campaign_snapshots.campaign_name (unique)' },
-        duplicate_ambiguous: { count: methodCounts.duplicate_ambiguous, revenue: `$${methodRevenue.duplicate_ambiguous.toFixed(2)}`, note: 'Name matched but multiple campaign IDs' },
-        unmatched: { count: methodCounts.unmatched, revenue: `$${methodRevenue.unmatched.toFixed(2)}`, note: 'Has UTM but no match in DB. Need FB re-sync or alias' },
-        facebook_only: { count: methodCounts.facebook_only, revenue: `$${methodRevenue.facebook_only.toFixed(2)}`, note: 'Source is facebook but no campaign info' },
-        unattributed: { count: methodCounts.unattributed, revenue: `$${methodRevenue.unattributed.toFixed(2)}`, note: 'No UTM, no source, no referrer' },
+        id_match: { count: methodCounts.id_match, revenue: `$${methodRevenue.id_match.toFixed(2)}`, note: 'utm_campaign ID matched to campaign_snapshots' },
+        name_match: { count: methodCounts.name_match, revenue: `$${methodRevenue.name_match.toFixed(2)}`, note: 'utm_source name matched to campaign_name (unique)' },
+        duplicate_ambiguous: { count: methodCounts.duplicate_ambiguous, revenue: `$${methodRevenue.duplicate_ambiguous.toFixed(2)}`, note: 'Name matched but multiple campaign IDs — needs manual alias' },
+        unmatched: { count: methodCounts.unmatched, revenue: `$${methodRevenue.unmatched.toFixed(2)}`, note: 'Has FB UTM but campaign not found in DB' },
+        facebook_only: { count: methodCounts.facebook_only, revenue: `$${methodRevenue.facebook_only.toFixed(2)}`, note: 'Source is Facebook but no campaign-level UTM' },
+        google_ads: { count: methodCounts.google_ads, revenue: `$${methodRevenue.google_ads.toFixed(2)}`, note: 'Google Ads / Google Shopping traffic (not FB attribution scope)' },
+        organic_direct: { count: methodCounts.organic_direct, revenue: `$${methodRevenue.organic_direct.toFixed(2)}`, note: 'Organic, direct, Shopify app, or other non-paid traffic' },
+        unattributed: { count: methodCounts.unattributed, revenue: `$${methodRevenue.unattributed.toFixed(2)}`, note: 'No UTM, no source, no referrer at all' },
       },
 
       // Data for alias mapping (unmatched UTMs)
