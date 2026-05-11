@@ -119,41 +119,32 @@ export async function buildCampaignLookup(campaignIds: string[]): Promise<Campai
   const nameSet = new Set<string>();
   const idToName = new Map<string, string>();
 
-  // Fetch by specific IDs
-  if (campaignIds.length > 0) {
-    const { data: idCampaigns } = await supabaseAdmin
+  // Only fetch campaigns we actually need (by ID from orders)
+  // This is much faster than fetching 50k rows
+  const uniqueIds = [...new Set(campaignIds)];
+  
+  // Process in chunks of 100 (Supabase .in() limit)
+  const CHUNK = 100;
+  for (let i = 0; i < uniqueIds.length; i += CHUNK) {
+    const chunk = uniqueIds.slice(i, i + CHUNK);
+    const { data } = await supabaseAdmin
       .from('campaign_snapshots')
       .select('campaign_id, campaign_name')
-      .in('campaign_id', campaignIds);
+      .in('campaign_id', chunk);
     
-    for (const c of idCampaigns || []) {
-      if (c.campaign_id) {
-        idSet.add(String(c.campaign_id));
-        idToName.set(String(c.campaign_id), c.campaign_name);
+    for (const c of data || []) {
+      const cid = String(c.campaign_id);
+      idSet.add(cid);
+      if (!idToName.has(cid)) {
+        idToName.set(cid, c.campaign_name);
       }
-    }
-  }
-
-  // Fetch all for name matching (deduplicated)
-  const { data: allCampaigns } = await supabaseAdmin
-    .from('campaign_snapshots')
-    .select('campaign_id, campaign_name')
-    .order('snapshot_date', { ascending: false })
-    .limit(50000);
-
-  for (const c of allCampaigns || []) {
-    if (c.campaign_id) {
-      idSet.add(String(c.campaign_id));
-      if (!idToName.has(String(c.campaign_id))) {
-        idToName.set(String(c.campaign_id), c.campaign_name);
+      const norm = normalize(c.campaign_name);
+      if (norm) {
+        nameSet.add(norm);
+        if (!nameMap.has(norm)) nameMap.set(norm, []);
+        const ids = nameMap.get(norm)!;
+        if (!ids.includes(cid)) ids.push(cid);
       }
-    }
-    const norm = normalize(c.campaign_name);
-    if (norm) {
-      nameSet.add(norm);
-      if (!nameMap.has(norm)) nameMap.set(norm, []);
-      const ids = nameMap.get(norm)!;
-      if (!ids.includes(String(c.campaign_id))) ids.push(String(c.campaign_id));
     }
   }
 
@@ -304,7 +295,7 @@ function inferCollectionFromProductType(productType: string, title: string): str
   return 'other';
 }
 
-// ─── Persist Attribution ────────────────────
+// ─── Persist Attribution (Batch Optimized) ──
 
 export async function persistAttributions(attributions: OrderAttribution[]): Promise<{
   ordersUpserted: number;
@@ -315,107 +306,129 @@ export async function persistAttributions(attributions: OrderAttribution[]): Pro
   let itemsInserted = 0;
   const errors: string[] = [];
 
-  for (const attr of attributions) {
-    try {
-      // Upsert order-level attribution
-      const { data: orderRow, error: orderError } = await supabaseAdmin
-        .from('order_attributions')
-        .upsert({
-          shopify_order_id: attr.shopify_order_id,
-          shopify_order_name: attr.shopify_order_name,
-          order_date: attr.order_date,
-          total_revenue: attr.total_revenue,
-          utm_source: attr.utm_source,
-          utm_medium: attr.utm_medium,
-          utm_campaign: attr.utm_campaign,
-          utm_content: attr.utm_content,
-          utm_term: attr.utm_term,
-          attribution_type: attr.attribution_type,
-          attribution_source: attr.attribution_source,
-          matched_campaign_id: attr.matched_campaign_id,
-          matched_campaign_name: attr.matched_campaign_name,
-          customer_email: attr.customer_email,
-          is_returning_customer: attr.is_returning_customer,
-          raw_landing_page: attr.raw_landing_page,
-          raw_referrer_url: attr.raw_referrer_url,
-          journey_ready: attr.journey_ready,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'shopify_order_id' })
-        .select('id')
-        .single();
+  if (attributions.length === 0) return { ordersUpserted, itemsInserted, errors };
 
-      if (orderError) {
-        errors.push(`Order ${attr.shopify_order_name}: ${orderError.message}`);
-        continue;
-      }
-      ordersUpserted++;
+  // Step 1: Batch upsert all order-level attributions
+  const orderRows = attributions.map(attr => ({
+    shopify_order_id: attr.shopify_order_id,
+    shopify_order_name: attr.shopify_order_name,
+    order_date: attr.order_date,
+    total_revenue: attr.total_revenue,
+    utm_source: attr.utm_source,
+    utm_medium: attr.utm_medium,
+    utm_campaign: attr.utm_campaign,
+    utm_content: attr.utm_content,
+    utm_term: attr.utm_term,
+    attribution_type: attr.attribution_type,
+    attribution_source: attr.attribution_source,
+    matched_campaign_id: attr.matched_campaign_id,
+    matched_campaign_name: attr.matched_campaign_name,
+    customer_email: attr.customer_email,
+    is_returning_customer: attr.is_returning_customer,
+    raw_landing_page: attr.raw_landing_page,
+    raw_referrer_url: attr.raw_referrer_url,
+    journey_ready: attr.journey_ready,
+    updated_at: new Date().toISOString(),
+  }));
 
-      // Delete existing items for this order (idempotent re-run)
-      await supabaseAdmin
-        .from('order_attribution_items')
-        .delete()
-        .eq('order_attribution_id', orderRow.id);
-
-      // Insert line items
-      if (attr.items.length > 0) {
-        const itemRows = attr.items.map(item => ({
-          order_attribution_id: orderRow.id,
-          shopify_product_id: item.shopify_product_id,
-          sku: item.sku,
-          product_title: item.product_title,
-          product_type: item.product_type,
-          quantity: item.quantity,
-          item_revenue: item.item_revenue,
-          collection_key: item.collection_key,
-        }));
-
-        const { error: itemError } = await supabaseAdmin
-          .from('order_attribution_items')
-          .insert(itemRows);
-
-        if (itemError) {
-          errors.push(`Items for ${attr.shopify_order_name}: ${itemError.message}`);
-        } else {
-          itemsInserted += itemRows.length;
-        }
-      }
-
-      // Update product_collection_cache
-      for (const item of attr.items) {
-        if (item.shopify_product_id) {
-          await supabaseAdmin
-            .from('product_collection_cache')
-            .upsert({
-              shopify_product_id: item.shopify_product_id,
-              canonical_collection: item.collection_key,
-              product_type: item.product_type,
-              product_title: item.product_title,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'shopify_product_id' });
-        }
-      }
-    } catch (err) {
-      errors.push(`Order ${attr.shopify_order_name}: ${err instanceof Error ? err.message : String(err)}`);
+  // Batch upsert in chunks of 100
+  const CHUNK = 100;
+  for (let i = 0; i < orderRows.length; i += CHUNK) {
+    const chunk = orderRows.slice(i, i + CHUNK);
+    const { error } = await supabaseAdmin
+      .from('order_attributions')
+      .upsert(chunk, { onConflict: 'shopify_order_id' });
+    
+    if (error) {
+      errors.push(`Batch orders ${i}-${i + chunk.length}: ${error.message}`);
+    } else {
+      ordersUpserted += chunk.length;
     }
+  }
+
+  // Step 2: Fetch all order IDs we just upserted (to link items)
+  const orderIds = attributions.map(a => a.shopify_order_id);
+  const { data: savedOrders } = await supabaseAdmin
+    .from('order_attributions')
+    .select('id, shopify_order_id')
+    .in('shopify_order_id', orderIds);
+
+  if (!savedOrders || savedOrders.length === 0) {
+    errors.push('Failed to fetch saved order IDs for item linking');
+    return { ordersUpserted, itemsInserted, errors };
+  }
+
+  const orderIdMap = new Map<string, string>();
+  for (const o of savedOrders) {
+    orderIdMap.set(o.shopify_order_id, o.id);
+  }
+
+  // Step 3: Delete existing items for all these orders (idempotent)
+  const dbOrderIds = savedOrders.map(o => o.id);
+  for (let i = 0; i < dbOrderIds.length; i += CHUNK) {
+    const chunk = dbOrderIds.slice(i, i + CHUNK);
+    await supabaseAdmin
+      .from('order_attribution_items')
+      .delete()
+      .in('order_attribution_id', chunk);
+  }
+
+  // Step 4: Batch insert all line items
+  const allItemRows: Record<string, unknown>[] = [];
+  const allCacheRows: Record<string, unknown>[] = [];
+  const seenProducts = new Set<string>();
+
+  for (const attr of attributions) {
+    const dbId = orderIdMap.get(attr.shopify_order_id);
+    if (!dbId) continue;
+
+    for (const item of attr.items) {
+      allItemRows.push({
+        order_attribution_id: dbId,
+        shopify_product_id: item.shopify_product_id,
+        sku: item.sku,
+        product_title: item.product_title,
+        product_type: item.product_type,
+        quantity: item.quantity,
+        item_revenue: item.item_revenue,
+        collection_key: item.collection_key,
+      });
+
+      // Deduplicated cache entries
+      if (item.shopify_product_id && !seenProducts.has(item.shopify_product_id)) {
+        seenProducts.add(item.shopify_product_id);
+        allCacheRows.push({
+          shopify_product_id: item.shopify_product_id,
+          canonical_collection: item.collection_key,
+          product_type: item.product_type,
+          product_title: item.product_title,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  // Insert items in chunks
+  for (let i = 0; i < allItemRows.length; i += CHUNK) {
+    const chunk = allItemRows.slice(i, i + CHUNK);
+    const { error } = await supabaseAdmin
+      .from('order_attribution_items')
+      .insert(chunk);
+    
+    if (error) {
+      errors.push(`Batch items ${i}-${i + chunk.length}: ${error.message}`);
+    } else {
+      itemsInserted += chunk.length;
+    }
+  }
+
+  // Step 5: Batch upsert product collection cache
+  for (let i = 0; i < allCacheRows.length; i += CHUNK) {
+    const chunk = allCacheRows.slice(i, i + CHUNK);
+    await supabaseAdmin
+      .from('product_collection_cache')
+      .upsert(chunk, { onConflict: 'shopify_product_id' });
   }
 
   return { ordersUpserted, itemsInserted, errors };
-}
-
-// ─── Refresh Materialized View ──────────────
-
-export async function refreshCollectionView(): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabaseAdmin.rpc('refresh_collection_performance_mv');
-  if (error) {
-    // Fallback: try raw SQL
-    const { error: rawError } = await supabaseAdmin
-      .from('collection_performance_mv')
-      .select('collection_key')
-      .limit(1);
-    
-    if (rawError) {
-      return { success: false, error: rawError.message };
-    }
-  }
-  return { success: true };
 }
