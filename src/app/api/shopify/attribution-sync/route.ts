@@ -1,0 +1,233 @@
+import { NextResponse } from 'next/server';
+import {
+  getShopifyConfig,
+  getValidShopifyConfig,
+  isShopifyConfigured,
+} from '@/lib/shopify';
+import {
+  buildCampaignLookup,
+  attributeOrder,
+  persistAttributions,
+  type ShopifyOrderForAttribution,
+} from '@/lib/attribution';
+import { supabaseAdmin } from '@/lib/supabase';
+
+export const maxDuration = 120;
+
+const ATTRIBUTION_QUERY = `
+  query AttributionOrders($query: String!, $first: Int!, $after: String) {
+    orders(query: $query, first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
+      edges {
+        node {
+          id
+          name
+          createdAt
+          totalPriceSet {
+            shopMoney {
+              amount
+            }
+          }
+          customer {
+            email
+            numberOfOrders
+          }
+          customerJourneySummary {
+            ready
+            firstVisit {
+              landingPage
+              referrerUrl
+              source
+              sourceType
+              utmParameters {
+                source
+                medium
+                campaign
+                content
+                term
+              }
+            }
+          }
+          lineItems(first: 20) {
+            edges {
+              node {
+                title
+                quantity
+                sku
+                originalUnitPriceSet {
+                  shopMoney {
+                    amount
+                  }
+                }
+                product {
+                  id
+                  productType
+                }
+              }
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+/**
+ * POST /api/shopify/attribution-sync
+ * 
+ * Runs the attribution pipeline on recent orders:
+ * 1. Fetch orders from Shopify (last N days)
+ * 2. Build campaign lookup from campaign_snapshots
+ * 3. Attribute each order (multi-method matching)
+ * 4. Persist to order_attributions + order_attribution_items
+ * 5. Refresh collection_performance_mv
+ * 
+ * Body: { days?: number } (default: 7)
+ */
+export async function POST(request: Request) {
+  const startTime = Date.now();
+
+  try {
+    // Parse request
+    let syncDays = 7;
+    try {
+      const body = await request.json();
+      if (body.days && typeof body.days === 'number' && body.days > 0 && body.days <= 90) {
+        syncDays = body.days;
+      }
+    } catch {
+      // No body is fine
+    }
+
+    // Get Shopify config
+    const customConfig = await getValidShopifyConfig();
+    const config = customConfig || getShopifyConfig();
+    if (!isShopifyConfigured(config)) {
+      return NextResponse.json({ error: 'Shopify not configured' }, { status: 400 });
+    }
+
+    // Fetch orders
+    const sinceDate = new Date();
+    sinceDate.setDate(sinceDate.getDate() - syncDays);
+    const queryStr = `created_at:>='${sinceDate.toISOString().split('T')[0]}'`;
+    
+    const domain = config.storeDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const url = `https://${domain}/admin/api/2026-04/graphql.json`;
+
+    const allOrders: ShopifyOrderForAttribution[] = [];
+    let hasNextPage = true;
+    let cursor: string | null = null;
+
+    while (hasNextPage && allOrders.length < 500) {
+      const response: Response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': config.accessToken,
+        },
+        body: JSON.stringify({
+          query: ATTRIBUTION_QUERY,
+          variables: { query: queryStr, first: 50, after: cursor },
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        return NextResponse.json({
+          error: `Shopify API error: ${response.status}`,
+          detail: text.substring(0, 500),
+        }, { status: 500 });
+      }
+
+      const json = await response.json();
+      if (json.errors) {
+        return NextResponse.json({ error: 'GraphQL errors', errors: json.errors }, { status: 500 });
+      }
+
+      const edges = json.data?.orders?.edges || [];
+      for (const edge of edges) {
+        allOrders.push(edge.node);
+      }
+      hasNextPage = json.data?.orders?.pageInfo?.hasNextPage || false;
+      cursor = json.data?.orders?.pageInfo?.endCursor || null;
+    }
+
+    if (allOrders.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: 'No orders found in date range',
+        ordersProcessed: 0,
+        durationMs: Date.now() - startTime,
+      });
+    }
+
+    // Extract campaign IDs from orders for targeted lookup
+    const campaignIds: string[] = [];
+    for (const order of allOrders) {
+      const campaign = order.customerJourneySummary?.firstVisit?.utmParameters?.campaign;
+      if (campaign) campaignIds.push(String(campaign).trim());
+    }
+
+    // Build campaign lookup
+    const lookup = await buildCampaignLookup([...new Set(campaignIds)]);
+
+    // Load collection cache
+    const { data: cachedCollections } = await supabaseAdmin
+      .from('product_collection_cache')
+      .select('shopify_product_id, canonical_collection')
+      .limit(10000);
+    
+    const collectionCache = new Map<string, string>();
+    for (const c of cachedCollections || []) {
+      collectionCache.set(c.shopify_product_id, c.canonical_collection);
+    }
+
+    // Attribute all orders
+    const attributions = allOrders.map(order => 
+      attributeOrder(order, lookup, collectionCache)
+    );
+
+    // Persist
+    const result = await persistAttributions(attributions);
+
+    // Refresh materialized view (best effort)
+    let viewRefreshed = false;
+    try {
+      // Try direct SQL refresh via RPC
+      await supabaseAdmin.rpc('refresh_collection_performance_mv');
+      viewRefreshed = true;
+    } catch {
+      // View refresh is non-critical
+    }
+
+    // Calculate coverage stats
+    const typeCounts: Record<string, number> = {};
+    for (const attr of attributions) {
+      typeCounts[attr.attribution_type] = (typeCounts[attr.attribution_type] || 0) + 1;
+    }
+
+    const durationMs = Date.now() - startTime;
+
+    return NextResponse.json({
+      success: true,
+      syncDays,
+      ordersProcessed: allOrders.length,
+      ordersUpserted: result.ordersUpserted,
+      itemsInserted: result.itemsInserted,
+      viewRefreshed,
+      errors: result.errors.length > 0 ? result.errors : undefined,
+      coverage: typeCounts,
+      campaignsInLookup: lookup.idSet.size,
+      collectionsInCache: collectionCache.size,
+      durationMs,
+    });
+  } catch (err) {
+    return NextResponse.json({
+      error: 'Attribution sync failed',
+      detail: err instanceof Error ? err.message : String(err),
+    }, { status: 500 });
+  }
+}
