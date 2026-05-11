@@ -164,15 +164,23 @@ export async function POST(request: Request) {
       });
     }
 
-    // Extract campaign IDs from orders for targeted lookup
+    // Extract campaign IDs and candidate names from orders for lookup
     const campaignIds: string[] = [];
+    const candidateNames: string[] = [];
     for (const order of allOrders) {
-      const campaign = order.customerJourneySummary?.firstVisit?.utmParameters?.campaign;
-      if (campaign) campaignIds.push(String(campaign).trim());
+      const utm = order.customerJourneySummary?.firstVisit?.utmParameters;
+      if (utm?.campaign) campaignIds.push(String(utm.campaign).trim());
+      if (utm?.source) {
+        const normSource = String(utm.source).trim().toLowerCase();
+        // Exclude generic platform names - only pass potential campaign names
+        if (normSource && !['facebook', 'fb', 'instagram', 'ig', 'google', 'google ads', 'google_ads', 'shop_app', 'shopify'].includes(normSource)) {
+          candidateNames.push(normSource);
+        }
+      }
     }
 
-    // Build campaign lookup
-    const lookup = await buildCampaignLookup([...new Set(campaignIds)]);
+    // Build campaign lookup (now includes name-based matching per TKT-00240 P1-3)
+    const lookup = await buildCampaignLookup([...new Set(campaignIds)], candidateNames);
 
     // Load collection cache
     const { data: cachedCollections } = await supabaseAdmin
@@ -185,23 +193,16 @@ export async function POST(request: Request) {
       collectionCache.set(c.shopify_product_id, c.canonical_collection);
     }
 
-    // Attribute all orders
-    const attributions = allOrders.map(order => 
-      attributeOrder(order, lookup, collectionCache)
+    // Attribute all orders (async due to email hashing)
+    const attributions = await Promise.all(
+      allOrders.map(order => attributeOrder(order, lookup, collectionCache))
     );
 
     // Persist
     const result = await persistAttributions(attributions);
 
-    // Refresh materialized view (best effort)
-    let viewRefreshed = false;
-    try {
-      // Try direct SQL refresh via RPC
-      await supabaseAdmin.rpc('refresh_collection_performance_mv');
-      viewRefreshed = true;
-    } catch {
-      // View refresh is non-critical
-    }
+    // Note: Materialized view refresh removed (TKT-00240 P2-4)
+    // Collection P&L is computed directly by /api/shopify/collections
 
     // Calculate coverage stats
     const typeCounts: Record<string, number> = {};
@@ -217,7 +218,6 @@ export async function POST(request: Request) {
       ordersProcessed: allOrders.length,
       ordersUpserted: result.ordersUpserted,
       itemsInserted: result.itemsInserted,
-      viewRefreshed,
       errors: result.errors.length > 0 ? result.errors : undefined,
       coverage: typeCounts,
       campaignsInLookup: lookup.idSet.size,

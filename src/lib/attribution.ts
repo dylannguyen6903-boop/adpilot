@@ -39,7 +39,7 @@ export interface OrderAttribution {
   matched_campaign_id: string | null;
   matched_campaign_name: string | null;
   
-  customer_email: string | null;
+  customer_email_hash: string | null;
   is_returning_customer: boolean;
   
   raw_landing_page: string | null;
@@ -111,53 +111,90 @@ function normalize(s: string | null | undefined): string {
   return decodeURIComponent(s).toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
+async function hashEmail(email: string | null | undefined): Promise<string | null> {
+  if (!email) return null;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(email.toLowerCase().trim());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ─── Build Campaign Lookup ──────────────────
 
-export async function buildCampaignLookup(campaignIds: string[]): Promise<CampaignLookup> {
+export async function buildCampaignLookup(
+  campaignIds: string[],
+  candidateNames: string[] = []
+): Promise<CampaignLookup> {
   const idSet = new Set<string>();
   const nameMap = new Map<string, string[]>();
   const nameSet = new Set<string>();
   const idToName = new Map<string, string>();
 
-  // Only fetch campaigns we actually need (by ID from orders)
-  // This is much faster than fetching 50k rows
-  const uniqueIds = [...new Set(campaignIds)];
-  
-  // Process in chunks of 100 (Supabase .in() limit)
   const CHUNK = 100;
+
+  // Step 1: Fetch campaigns by ID (from utm_campaign values)
+  const uniqueIds = [...new Set(campaignIds)];
   for (let i = 0; i < uniqueIds.length; i += CHUNK) {
     const chunk = uniqueIds.slice(i, i + CHUNK);
     const { data } = await supabaseAdmin
       .from('campaign_snapshots')
       .select('campaign_id, campaign_name')
       .in('campaign_id', chunk);
-    
+
     for (const c of data || []) {
-      const cid = String(c.campaign_id);
-      idSet.add(cid);
-      if (!idToName.has(cid)) {
-        idToName.set(cid, c.campaign_name);
-      }
-      const norm = normalize(c.campaign_name);
-      if (norm) {
-        nameSet.add(norm);
-        if (!nameMap.has(norm)) nameMap.set(norm, []);
-        const ids = nameMap.get(norm)!;
-        if (!ids.includes(cid)) ids.push(cid);
-      }
+      addCampaignToLookup(c, idSet, nameMap, nameSet, idToName);
+    }
+  }
+
+  // Step 2: Fetch campaigns by name (from utm_source values)
+  // This aligns sync coverage with the audit endpoint (TKT-00240 P1-3)
+  const uniqueNames = [...new Set(candidateNames)].filter(n => n && !nameSet.has(n));
+  if (uniqueNames.length > 0) {
+    // Fetch all recent campaigns for name matching (same strategy as audit endpoint)
+    // Since PostgREST .in() fails with commas in values, fetch a bounded recent set
+    const { data: nameCampaigns } = await supabaseAdmin
+      .from('campaign_snapshots')
+      .select('campaign_id, campaign_name')
+      .order('snapshot_date', { ascending: false })
+      .limit(10000);
+
+    for (const c of nameCampaigns || []) {
+      addCampaignToLookup(c, idSet, nameMap, nameSet, idToName);
     }
   }
 
   return { idSet, nameMap, nameSet, idToName };
 }
 
+function addCampaignToLookup(
+  c: { campaign_id: string; campaign_name: string },
+  idSet: Set<string>,
+  nameMap: Map<string, string[]>,
+  nameSet: Set<string>,
+  idToName: Map<string, string>
+): void {
+  const cid = String(c.campaign_id);
+  idSet.add(cid);
+  if (!idToName.has(cid)) {
+    idToName.set(cid, c.campaign_name);
+  }
+  const norm = normalize(c.campaign_name);
+  if (norm) {
+    nameSet.add(norm);
+    if (!nameMap.has(norm)) nameMap.set(norm, []);
+    const ids = nameMap.get(norm)!;
+    if (!ids.includes(cid)) ids.push(cid);
+  }
+}
+
 // ─── Attribute Single Order ─────────────────
 
-export function attributeOrder(
+export async function attributeOrder(
   order: ShopifyOrderForAttribution,
   lookup: CampaignLookup,
   collectionCache: Map<string, string>
-): OrderAttribution {
+): Promise<OrderAttribution> {
   const journey = order.customerJourneySummary;
   const firstVisit = journey?.firstVisit;
   const utm = firstVisit?.utmParameters;
@@ -266,7 +303,7 @@ export function attributeOrder(
     attribution_source: source,
     matched_campaign_id: matchedCampaignId,
     matched_campaign_name: matchedCampaignName,
-    customer_email: order.customer?.email || null,
+    customer_email_hash: await hashEmail(order.customer?.email),
     is_returning_customer: customerOrders > 1,
     raw_landing_page: firstVisit?.landingPage || null,
     raw_referrer_url: referrer,
@@ -323,7 +360,7 @@ export async function persistAttributions(attributions: OrderAttribution[]): Pro
     attribution_source: attr.attribution_source,
     matched_campaign_id: attr.matched_campaign_id,
     matched_campaign_name: attr.matched_campaign_name,
-    customer_email: attr.customer_email,
+    customer_email_hash: attr.customer_email_hash,
     is_returning_customer: attr.is_returning_customer,
     raw_landing_page: attr.raw_landing_page,
     raw_referrer_url: attr.raw_referrer_url,
