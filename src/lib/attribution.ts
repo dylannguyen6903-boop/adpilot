@@ -10,6 +10,7 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabase';
+import { convertToAdAccountDate } from '@/lib/timezone';
 
 // ─── Types ───────────────────────────────────
 
@@ -292,7 +293,7 @@ export async function attributeOrder(
   return {
     shopify_order_id: order.id,
     shopify_order_name: order.name,
-    order_date: order.createdAt.split('T')[0],
+    order_date: convertToAdAccountDate(order.createdAt),  // Align with FB ad-account timezone (TKT-00242)
     total_revenue: parseFloat(order.totalPriceSet.shopMoney.amount),
     utm_source: utmSource,
     utm_medium: utm?.medium || null,
