@@ -146,9 +146,9 @@ export default function DashboardPage() {
   const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}${dateParam}${qsAccount}`);
   const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}${dateParam}${qsAccount}`);
   const { data: insightsData } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}${qsAccount}`);
-  // P1-1: Pass exact timeframe days to collections (not forced to 7)
-  // P1-2: Disable collections fetch when specific ad account is selected (no account filtering support yet)
-  const collectionsUrl = selectedAccount ? null : `/api/shopify/collections?days=${days}`;
+  // TKT-00249: Pass exact timeframe + date param to collections (mirrors margin/campaigns APIs)
+  // Disable collections fetch when specific ad account is selected (no account filtering support yet)
+  const collectionsUrl = selectedAccount ? null : `/api/shopify/collections?days=${days}${dateParam}`;
   const { data: collectionsData, loading: collectionsLoading, error: collectionsError } = useApiData<CollectionsApiResponse>(collectionsUrl);
 
   const coreErrors = [marginError, campaignsError].filter(Boolean);

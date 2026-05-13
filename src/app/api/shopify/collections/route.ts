@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getAdAccountToday } from '@/lib/timezone';
 
 /**
  * GET /api/shopify/collections
@@ -16,15 +17,20 @@ import { supabaseAdmin } from '@/lib/supabase';
  * 
  * Query params:
  *   days=7 (default, max 90)
+ *   date=YYYY-MM-DD (optional anchor date, defaults to ad-account today)
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const days = Math.min(parseInt(searchParams.get('days') || '7', 10), 90);
+    const days = Math.min(Math.max(parseInt(searchParams.get('days') || '7', 10), 1), 90);
     
-    const sinceDate = new Date();
-    sinceDate.setDate(sinceDate.getDate() - days);
-    const sinceDateStr = sinceDate.toISOString().split('T')[0];
+    // TKT-00249: Anchor to ad-account timezone date, support explicit date param
+    const anchorDate = searchParams.get('date') || getAdAccountToday();
+    // Compute fromDate: anchorDate - (days - 1) to create inclusive [from, anchor] range
+    const anchor = new Date(anchorDate + 'T00:00:00Z');
+    const from = new Date(anchor.getTime() - (days - 1) * 86400000);
+    const fromDateStr = from.toISOString().split('T')[0];
+    const toDateStr = anchorDate;
 
     // Fetch attribution items with parent order info
     const { data: collectionData, error: collError } = await supabaseAdmin
@@ -41,7 +47,8 @@ export async function GET(request: NextRequest) {
           total_revenue
         )
       `)
-      .gte('order_attributions.order_date', sinceDateStr);
+      .gte('order_attributions.order_date', fromDateStr)
+      .lte('order_attributions.order_date', toDateStr);
 
     if (collError) {
       return NextResponse.json({ error: collError.message }, { status: 500 });
@@ -125,7 +132,8 @@ export async function GET(request: NextRequest) {
         .from('campaign_snapshots')
         .select('campaign_id, snapshot_date, spend')
         .in('campaign_id', Array.from(allCampaignIds))
-        .gte('snapshot_date', sinceDateStr);
+        .gte('snapshot_date', fromDateStr)
+        .lte('snapshot_date', toDateStr);
 
       for (const row of spendData || []) {
         const cid = String(row.campaign_id);
@@ -202,7 +210,7 @@ export async function GET(request: NextRequest) {
     const totalProfit = result.reduce((s, r) => s + r.fb_profit, 0);
 
     return NextResponse.json({
-      period: `Last ${days} days (since ${sinceDateStr})`,
+      period: days === 1 ? `${toDateStr}` : `${fromDateStr} → ${toDateStr} (${days} days)`,
       methodology: 'Per campaign/date revenue-share spend allocation. ROAS computed on attributed FB orders only.',
       summary: {
         total_revenue: Math.round(totalRevenue * 100) / 100,
