@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     const collections: Record<string, {
       // Separated revenue buckets (P1-1)
       attributed_fb_revenue: number;
-      non_fb_revenue: number;     // google_ads, organic_direct
+      non_fb_revenue: number;     // google_ads, google_organic, organic_direct, facebook_only
       unattributed_revenue: number;
       total_revenue: number;
       orders: Set<string>;
@@ -110,10 +110,11 @@ export async function GET(request: NextRequest) {
             (globalCampaignDateRevenue.get(cdKey) || 0) + revenue
           );
         }
-      } else if (attrType === 'google_ads' || attrType === 'organic_direct' || attrType === 'facebook_only') {
+      } else if (attrType === 'google_ads' || attrType === 'google_organic' || attrType === 'organic_direct' || attrType === 'facebook_only') {
+        // Non-FB attributed traffic: Google (paid+organic), Shopify/direct, FB without campaign match
         collections[key].non_fb_revenue += revenue;
       } else {
-        // duplicate_ambiguous, unattributed, or unknown
+        // duplicate_ambiguous, unmatched_utm, unattributed, or unknown
         collections[key].unattributed_revenue += revenue;
       }
     }
