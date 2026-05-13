@@ -146,7 +146,10 @@ export default function DashboardPage() {
   const { data: marginData, error: marginError } = useApiData<MarginApiResponse>(`/api/engine/margin?days=${days}${dateParam}${qsAccount}`);
   const { data: campaignsData, error: campaignsError } = useApiData<CampaignsApiResponse>(`/api/facebook/campaigns?days=${days}${dateParam}${qsAccount}`);
   const { data: insightsData } = useApiData<InsightsApiResponse>(`/api/facebook/insights?from=${fromDate}&to=${today}${qsAccount}`);
-  const { data: collectionsData, loading: collectionsLoading } = useApiData<CollectionsApiResponse>(`/api/shopify/collections?days=${Math.max(days, 7)}`);
+  // P1-1: Pass exact timeframe days to collections (not forced to 7)
+  // P1-2: Disable collections fetch when specific ad account is selected (no account filtering support yet)
+  const collectionsUrl = selectedAccount ? null : `/api/shopify/collections?days=${days}`;
+  const { data: collectionsData, loading: collectionsLoading, error: collectionsError } = useApiData<CollectionsApiResponse>(collectionsUrl);
 
   const coreErrors = [marginError, campaignsError].filter(Boolean);
   const hasDataError = coreErrors.length > 0;
@@ -316,14 +319,31 @@ export default function DashboardPage() {
           <div className="collection-section-header">
             <div className="collection-section-title">
               📊 Collection P&L
-              <span className="collection-section-badge">Phase 1</span>
+              <span className="collection-section-badge">Directional</span>
             </div>
-            {collectionsData?.period && (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{collectionsData.period}</span>
-            )}
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              {selectedAccount ? 'Chọn "Tất cả tài khoản" để xem' : collectionsData?.period || `${timeframeLabel} • Tất cả tài khoản`}
+            </span>
           </div>
 
-          {collectionsLoading ? (
+          {/* P1-2: Show message when specific account is selected */}
+          {selectedAccount ? (
+            <div className="card" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
+              <div style={{ fontSize: 'var(--text-xl)', marginBottom: 'var(--space-sm)' }}>🔍</div>
+              <div style={{ color: 'var(--text-secondary)' }}>Collection P&L hiện chỉ hỗ trợ xem tất cả tài khoản.</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>Chọn &quot;Tất cả tài khoản&quot; từ dropdown để xem dữ liệu.</div>
+            </div>
+          ) : collectionsError ? (
+            <div className="card" style={{ padding: 'var(--space-md)', border: '1px solid var(--color-watch)', background: 'rgba(255,159,10,0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                <span>⚠️</span>
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--color-watch)' }}>Collection P&L không tải được</div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{collectionsError}</div>
+                </div>
+              </div>
+            </div>
+          ) : collectionsLoading ? (
             <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-2xl)' }}>
               <div className="loading-spinner"></div>
               <span style={{ marginLeft: 'var(--space-md)', color: 'var(--text-muted)' }}>Đang tải Collection P&L...</span>
