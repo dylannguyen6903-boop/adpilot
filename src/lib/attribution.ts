@@ -20,7 +20,9 @@ export type AttributionType =
   | 'duplicate_ambiguous'
   | 'facebook_only' 
   | 'google_ads' 
+  | 'google_organic'
   | 'organic_direct' 
+  | 'unmatched_utm'
   | 'unattributed';
 
 export interface OrderAttribution {
@@ -40,7 +42,8 @@ export interface OrderAttribution {
   matched_campaign_id: string | null;
   matched_campaign_name: string | null;
   
-  customer_email: string | null;  // SHA-256 hash per SRS v1.2 (stored in customer_email column until DB migration)
+  customer_email: string | null;  // SHA-256 hash per SRS v1.2
+  customer_display_email: string | null;  // Masked email e.g. j***@gmail.com (TKT-00260)
   is_returning_customer: boolean;
   
   raw_landing_page: string | null;
@@ -119,6 +122,24 @@ async function hashEmail(email: string | null | undefined): Promise<string | nul
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Mask email for display: john.doe@gmail.com → j***@gmail.com (TKT-00260) */
+function maskEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const trimmed = email.toLowerCase().trim();
+  const atIdx = trimmed.indexOf('@');
+  if (atIdx <= 0) return null;
+  const local = trimmed.substring(0, atIdx);
+  const domain = trimmed.substring(atIdx);
+  return local.charAt(0) + '***' + domain;
+}
+
+/** Check if utm_medium indicates paid traffic */
+function isPaidMedium(medium: string | null | undefined): boolean {
+  if (!medium) return false;
+  const norm = medium.toLowerCase().trim();
+  return ['cpc', 'ppc', 'paid', 'paid_search', 'paidsocial', 'paid_social', 'shopping', 'display', 'cpm'].includes(norm);
 }
 
 // ─── Build Campaign Lookup ──────────────────
@@ -202,7 +223,9 @@ export async function attributeOrder(
 
   const utmCampaign = utm?.campaign || null;
   const utmSource = utm?.source || null;
+  const utmMedium = utm?.medium || null;
   const source = firstVisit?.source || null;
+  const sourceType = firstVisit?.sourceType || null;
   const referrer = firstVisit?.referrerUrl || null;
 
   let attributionType: AttributionType = 'unattributed';
@@ -219,14 +242,32 @@ export async function attributeOrder(
     }
   }
 
+  // === PRIORITY A2: utm_campaign as campaign name (non-numeric) ===
+  // TKT-00260: Also try matching utm_campaign when it's a name, not just an ID
+  if (attributionType === 'unattributed' && utmCampaign) {
+    const normCampaign = normalize(utmCampaign);
+    if (normCampaign && lookup.nameSet.has(normCampaign)) {
+      const ids = lookup.nameMap.get(normCampaign)!;
+      if (ids.length === 1) {
+        attributionType = 'name_match';
+        matchedCampaignId = ids[0];
+        matchedCampaignName = normCampaign;
+      } else {
+        attributionType = 'duplicate_ambiguous';
+      }
+    }
+  }
+
   // === PRIORITY B: utm_source as campaign name ===
   if (attributionType === 'unattributed' && utmSource) {
     const normSource = normalize(utmSource);
     
     if (normSource === 'facebook' || normSource === 'fb' || normSource === 'instagram' || normSource === 'ig') {
+      // FB/IG source but no campaign match
       attributionType = 'facebook_only';
     } else if (normSource === 'google' || normSource === 'google ads' || normSource === 'google_ads') {
-      attributionType = 'google_ads';
+      // TKT-00260: Distinguish Google paid vs organic using utm_medium
+      attributionType = isPaidMedium(utmMedium) ? 'google_ads' : 'google_organic';
     } else if (normSource === 'shop_app' || normSource === 'shopify') {
       attributionType = 'organic_direct';
     } else if (lookup.nameSet.has(normSource)) {
@@ -239,21 +280,24 @@ export async function attributeOrder(
         attributionType = 'duplicate_ambiguous';
       }
     } else {
-      // Has UTM but no match - classify by referrer
+      // TKT-00260: Has UTM but no match. Check FB referrer, otherwise mark unmatched_utm
       if (referrer?.includes('facebook.com') || source?.toLowerCase().includes('facebook')) {
         attributionType = 'facebook_only';
       } else {
-        attributionType = 'organic_direct';
+        attributionType = 'unmatched_utm';  // NOT organic_direct (was hiding broken UTMs)
       }
     }
   }
 
-  // === PRIORITY C: No UTM - check source/referrer ===
+  // === PRIORITY C: No UTM at all - check source/referrer ===
   if (attributionType === 'unattributed') {
-    if (source?.toLowerCase().includes('facebook') || referrer?.includes('facebook.com')) {
+    const srcLower = source?.toLowerCase() || '';
+    if (srcLower.includes('facebook') || referrer?.includes('facebook.com')) {
       attributionType = 'facebook_only';
-    } else if (source?.toLowerCase().includes('google') || referrer?.includes('google.com')) {
-      attributionType = 'google_ads';
+    } else if (srcLower.includes('google') || referrer?.includes('google.com')) {
+      // TKT-00260: No UTM but from Google. Check sourceType for paid indication
+      const isPaid = isPaidMedium(utmMedium) || sourceType?.toLowerCase().includes('paid');
+      attributionType = isPaid ? 'google_ads' : 'google_organic';
     } else if (source || referrer) {
       attributionType = 'organic_direct';
     }
@@ -296,7 +340,7 @@ export async function attributeOrder(
     order_date: convertToAdAccountDate(order.createdAt),  // Align with FB ad-account timezone (TKT-00242)
     total_revenue: parseFloat(order.totalPriceSet.shopMoney.amount),
     utm_source: utmSource,
-    utm_medium: utm?.medium || null,
+    utm_medium: utmMedium,
     utm_campaign: utmCampaign,
     utm_content: utm?.content || null,
     utm_term: utm?.term || null,
@@ -305,6 +349,7 @@ export async function attributeOrder(
     matched_campaign_id: matchedCampaignId,
     matched_campaign_name: matchedCampaignName,
     customer_email: await hashEmail(order.customer?.email),  // SHA-256 hash per SRS v1.2
+    customer_display_email: maskEmail(order.customer?.email),  // TKT-00260: masked for UI display
     is_returning_customer: customerOrders > 1,
     raw_landing_page: firstVisit?.landingPage || null,
     raw_referrer_url: referrer,
@@ -362,6 +407,7 @@ export async function persistAttributions(attributions: OrderAttribution[]): Pro
     matched_campaign_id: attr.matched_campaign_id,
     matched_campaign_name: attr.matched_campaign_name,
     customer_email: attr.customer_email,
+    customer_display_email: attr.customer_display_email,
     is_returning_customer: attr.is_returning_customer,
     raw_landing_page: attr.raw_landing_page,
     raw_referrer_url: attr.raw_referrer_url,

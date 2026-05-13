@@ -6,12 +6,7 @@ import { getAdAccountToday } from '@/lib/timezone';
  * GET /api/shopify/customer-ltv
  * 
  * Phase 2: Customer LTV & First-Touch Attribution
- * 
- * Aggregates customer-level metrics from order_attributions:
- * - Lifetime revenue, order count, repeat rate
- * - First-touch campaign attribution (which channel acquired the customer)
- * - Monthly cohort analysis
- * - LTV/CAC ratio by acquisition channel
+ * TKT-00260: Fixed channel grouping, added coverage metadata, added order names
  * 
  * Query params:
  *   days=90 (lookback window, default 90, max 365)
@@ -29,10 +24,45 @@ export async function GET(request: NextRequest) {
     const fromDateStr = from.toISOString().split('T')[0];
     const toDateStr = anchorDate;
 
+    // ─── Data Coverage Check (TKT-00260 P1-3) ───
+    // Count attributed orders vs estimated total from daily_financials
+    const { count: attributedCount } = await supabaseAdmin
+      .from('order_attributions')
+      .select('*', { count: 'exact', head: true })
+      .gte('order_date', fromDateStr)
+      .lte('order_date', toDateStr);
+
+    const { data: financials } = await supabaseAdmin
+      .from('daily_financials')
+      .select('shopify_orders')
+      .gte('report_date', fromDateStr)
+      .lte('report_date', toDateStr);
+
+    const estimatedTotalOrders = (financials || []).reduce(
+      (s, f) => s + (parseInt(String(f.shopify_orders)) || 0), 0
+    );
+
+    // Find last sync timestamp
+    const { data: lastSync } = await supabaseAdmin
+      .from('order_attributions')
+      .select('updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    const coverage = {
+      attributed_orders: attributedCount || 0,
+      estimated_total_orders: estimatedTotalOrders,
+      coverage_percent: estimatedTotalOrders > 0
+        ? Math.round(((attributedCount || 0) / estimatedTotalOrders) * 100)
+        : 0,
+      last_sync: lastSync?.updated_at || null,
+    };
+
     // ─── Fetch all orders with customer email in date range ───
     const { data: orders, error: ordError } = await supabaseAdmin
       .from('order_attributions')
-      .select('customer_email, total_revenue, order_date, attribution_type, matched_campaign_id, matched_campaign_name, is_returning_customer')
+      .select('customer_email, customer_display_email, shopify_order_name, total_revenue, order_date, attribution_type, matched_campaign_id, matched_campaign_name, is_returning_customer')
       .not('customer_email', 'is', null)
       .gte('order_date', fromDateStr)
       .lte('order_date', toDateStr);
@@ -44,29 +74,27 @@ export async function GET(request: NextRequest) {
     if (!orders || orders.length === 0) {
       return NextResponse.json({
         period: days === 1 ? toDateStr : `${fromDateStr} → ${toDateStr} (${days} days)`,
+        coverage,
         summary: {
-          total_customers: 0,
-          total_orders: 0,
-          avg_ltv: 0,
-          avg_orders_per_customer: 0,
-          repeat_rate: 0,
-          total_revenue: 0,
+          total_customers: 0, total_orders: 0, avg_ltv: 0,
+          avg_orders_per_customer: 0, repeat_rate: 0, total_revenue: 0,
+          repeat_customers: 0, total_fb_spend: 0, fb_cac: 0, fb_ltv_cac_ratio: 0,
         },
-        cohorts: [],
-        top_customers: [],
-        channel_ltv: [],
+        cohorts: [], top_customers: [], channel_ltv: [],
       });
     }
 
     // ─── Aggregate per customer ───
     interface CustomerData {
       email: string;
+      display_email: string | null;
       orders: Array<{
         revenue: number;
         date: string;
         attribution_type: string;
         campaign_id: string | null;
         campaign_name: string | null;
+        order_name: string | null;
       }>;
       total_revenue: number;
     }
@@ -76,7 +104,12 @@ export async function GET(request: NextRequest) {
     for (const ord of orders) {
       const email = ord.customer_email as string;
       if (!customerMap.has(email)) {
-        customerMap.set(email, { email, orders: [], total_revenue: 0 });
+        customerMap.set(email, {
+          email,
+          display_email: (ord.customer_display_email as string) || null,
+          orders: [],
+          total_revenue: 0,
+        });
       }
       const cust = customerMap.get(email)!;
       const rev = parseFloat(String(ord.total_revenue)) || 0;
@@ -86,6 +119,7 @@ export async function GET(request: NextRequest) {
         attribution_type: ord.attribution_type,
         campaign_id: ord.matched_campaign_id,
         campaign_name: ord.matched_campaign_name,
+        order_name: ord.shopify_order_name,
       });
       cust.total_revenue += rev;
     }
@@ -93,6 +127,29 @@ export async function GET(request: NextRequest) {
     // Sort each customer's orders by date (ascending) to find first-touch
     for (const cust of customerMap.values()) {
       cust.orders.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    // ─── Channel classification helper (TKT-00260 fix) ───
+    function classifyChannel(attrType: string): string {
+      switch (attrType) {
+        case 'id_match':
+        case 'name_match':
+          return 'FB Attributed';
+        case 'facebook_only':
+          return 'FB Unmatched';  // TKT-00260: Was incorrectly grouped under Organic
+        case 'google_ads':
+          return 'Google Ads';
+        case 'google_organic':
+          return 'Google Organic';
+        case 'organic_direct':
+          return 'Organic / Direct';
+        case 'duplicate_ambiguous':
+          return 'FB Ambiguous';
+        case 'unmatched_utm':
+          return 'Unmatched UTM';
+        default:
+          return 'Unattributed';
+      }
     }
 
     // ─── Summary KPIs ───
@@ -106,7 +163,6 @@ export async function GET(request: NextRequest) {
     const repeatRate = totalCustomers > 0 ? repeatCustomers / totalCustomers : 0;
 
     // ─── First-Touch Channel LTV ───
-    // Group customers by their first order's attribution type
     interface ChannelLtv {
       channel: string;
       customer_count: number;
@@ -119,16 +175,7 @@ export async function GET(request: NextRequest) {
     const channelMap = new Map<string, { customers: CustomerData[] }>();
 
     for (const cust of customers) {
-      const firstOrder = cust.orders[0];
-      let channel = 'Unattributed';
-      if (firstOrder.attribution_type === 'id_match' || firstOrder.attribution_type === 'name_match') {
-        channel = 'FB Attributed';
-      } else if (firstOrder.attribution_type === 'google_ads') {
-        channel = 'Google Ads';
-      } else if (firstOrder.attribution_type === 'organic_direct' || firstOrder.attribution_type === 'facebook_only') {
-        channel = 'Organic / Direct';
-      }
-
+      const channel = classifyChannel(cust.orders[0].attribution_type);
       if (!channelMap.has(channel)) {
         channelMap.set(channel, { customers: [] });
       }
@@ -153,7 +200,6 @@ export async function GET(request: NextRequest) {
     channelLtv.sort((a, b) => b.total_revenue - a.total_revenue);
 
     // ─── Monthly Cohort Analysis ───
-    // Cohort = month of customer's first order
     interface CohortData {
       cohort_month: string;
       customer_count: number;
@@ -166,11 +212,8 @@ export async function GET(request: NextRequest) {
 
     const cohortMap = new Map<string, CustomerData[]>();
     for (const cust of customers) {
-      const firstDate = cust.orders[0].date; // YYYY-MM-DD
-      const cohortMonth = firstDate.substring(0, 7); // YYYY-MM
-      if (!cohortMap.has(cohortMonth)) {
-        cohortMap.set(cohortMonth, []);
-      }
+      const cohortMonth = cust.orders[0].date.substring(0, 7);
+      if (!cohortMap.has(cohortMonth)) cohortMap.set(cohortMonth, []);
       cohortMap.get(cohortMonth)!.push(cust);
     }
 
@@ -192,28 +235,27 @@ export async function GET(request: NextRequest) {
     }
     cohorts.sort((a, b) => a.cohort_month.localeCompare(b.cohort_month));
 
-    // ─── Top Customers ───
+    // ─── Top Customers (TKT-00260: show order name + masked email) ───
     const topCustomers = customers
       .sort((a, b) => b.total_revenue - a.total_revenue)
       .slice(0, 20)
       .map(c => {
         const first = c.orders[0];
+        const last = c.orders[c.orders.length - 1];
         return {
-          email_hash: c.email.substring(0, 8) + '...',
+          display_email: c.display_email || c.email.substring(0, 8) + '...',
+          first_order_name: first.order_name,
+          last_order_name: last.order_name,
           order_count: c.orders.length,
           lifetime_revenue: Math.round(c.total_revenue * 100) / 100,
           first_order_date: first.date,
-          last_order_date: c.orders[c.orders.length - 1].date,
-          first_touch_channel: first.attribution_type === 'id_match' || first.attribution_type === 'name_match'
-            ? 'FB Attributed' : first.attribution_type === 'google_ads'
-              ? 'Google Ads' : first.attribution_type === 'organic_direct' || first.attribution_type === 'facebook_only'
-                ? 'Organic / Direct' : 'Unattributed',
+          last_order_date: last.date,
+          first_touch_channel: classifyChannel(first.attribution_type),
           first_campaign: first.campaign_name || null,
         };
       });
 
     // ─── Fetch FB spend for LTV/CAC ───
-    // Calculate total spend in the period for LTV/CAC ratio
     const { data: spendData } = await supabaseAdmin
       .from('campaign_snapshots')
       .select('spend')
@@ -221,6 +263,7 @@ export async function GET(request: NextRequest) {
       .lte('snapshot_date', toDateStr);
 
     const totalSpend = (spendData || []).reduce((s, r) => s + (parseFloat(String(r.spend)) || 0), 0);
+    // FB-acquired = id_match + name_match customers
     const fbCustomers = channelLtv.find(c => c.channel === 'FB Attributed')?.customer_count || 0;
     const cac = fbCustomers > 0 ? totalSpend / fbCustomers : 0;
     const fbAvgLtv = channelLtv.find(c => c.channel === 'FB Attributed')?.avg_ltv || 0;
@@ -228,7 +271,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       period: days === 1 ? toDateStr : `${fromDateStr} → ${toDateStr} (${days} days)`,
-      methodology: 'First-touch attribution from earliest order. LTV = sum of all order revenue per customer email. CAC = total FB spend / FB-acquired customers.',
+      methodology: 'First-touch attribution from earliest order. Google Ads requires paid utm_medium (cpc/ppc). facebook_only = FB traffic without matched campaign. LTV = sum of all order revenue per customer.',
+      coverage,
       summary: {
         total_customers: totalCustomers,
         total_orders: totalOrders,

@@ -88,6 +88,12 @@ interface CollectionsApiResponse {
 interface CustomerLtvApiResponse {
   period: string;
   methodology: string;
+  coverage: {
+    attributed_orders: number;
+    estimated_total_orders: number;
+    coverage_percent: number;
+    last_sync: string | null;
+  };
   summary: {
     total_customers: number;
     total_orders: number;
@@ -118,7 +124,9 @@ interface CustomerLtvApiResponse {
     avg_orders: number;
   }>;
   top_customers: Array<{
-    email_hash: string;
+    display_email: string;
+    first_order_name: string | null;
+    last_order_name: string | null;
     order_count: number;
     lifetime_revenue: number;
     first_order_date: string;
@@ -579,6 +587,24 @@ export default function DashboardPage() {
             </div>
           ) : ltvData && ltvData.summary.total_customers > 0 ? (
             <>
+              {/* Coverage Warning (TKT-00260 P1-3) */}
+              {ltvData.coverage && ltvData.coverage.coverage_percent < 80 && (
+                <div className="card" style={{ padding: 'var(--space-md)', border: '1px solid #ff9f0a', background: 'rgba(255,159,10,0.06)', marginBottom: 'var(--space-md)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                    <span>⚠️</span>
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#ff9f0a', fontSize: 'var(--text-sm)' }}>
+                        Data Coverage: {ltvData.coverage.attributed_orders}/{ltvData.coverage.estimated_total_orders} orders ({ltvData.coverage.coverage_percent}%)
+                      </div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                        Chạy 90-day Attribution Backfill trong Settings để tăng độ phủ dữ liệu.
+                        {ltvData.coverage.last_sync && ` Sync cuối: ${new Date(ltvData.coverage.last_sync).toLocaleString()}`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* LTV KPIs */}
               <div className="collection-kpi-row">
                 <div className="collection-kpi">
@@ -662,38 +688,52 @@ export default function DashboardPage() {
                       <tr>
                         <th>#</th>
                         <th>CUSTOMER</th>
+                        <th>FIRST ORDER</th>
                         <th>ORDERS</th>
                         <th>LIFETIME REV</th>
-                        <th>FIRST ORDER</th>
+                        <th>DATE</th>
                         <th>CHANNEL</th>
-                        <th>FIRST CAMPAIGN</th>
+                        <th>CAMPAIGN</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {ltvData.top_customers.map((c, i) => (
-                        <tr key={c.email_hash}>
-                          <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{c.email_hash}</td>
-                          <td>{c.order_count}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#30d158' }}>{formatCurrency(c.lifetime_revenue)}</td>
-                          <td style={{ color: 'var(--text-muted)' }}>{c.first_order_date}</td>
-                          <td>
-                            <span style={{ 
-                              padding: '2px 8px', 
-                              borderRadius: 4, 
-                              fontSize: 'var(--text-xs)',
-                              background: c.first_touch_channel === 'FB Attributed' ? 'rgba(10,132,255,0.15)' : 'rgba(255,159,10,0.15)',
-                              color: c.first_touch_channel === 'FB Attributed' ? '#0a84ff' : '#ff9f0a'
-                            }}>{c.first_touch_channel}</span>
-                          </td>
-                          <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.first_campaign || '—'}</td>
-                        </tr>
-                      ))}
+                      {ltvData.top_customers.map((c, i) => {
+                        const channelColors: Record<string, { bg: string; fg: string }> = {
+                          'FB Attributed': { bg: 'rgba(10,132,255,0.15)', fg: '#0a84ff' },
+                          'FB Unmatched': { bg: 'rgba(10,132,255,0.08)', fg: '#5eb5ff' },
+                          'Google Ads': { bg: 'rgba(52,199,89,0.15)', fg: '#34c759' },
+                          'Google Organic': { bg: 'rgba(52,199,89,0.08)', fg: '#6ed89a' },
+                          'Organic / Direct': { bg: 'rgba(255,159,10,0.15)', fg: '#ff9f0a' },
+                        };
+                        const chColor = channelColors[c.first_touch_channel] || { bg: 'rgba(142,142,147,0.15)', fg: '#8e8e93' };
+                        return (
+                          <tr key={`${c.display_email}-${i}`}>
+                            <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
+                            <td>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{c.display_email}</div>
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{c.first_order_name || '—'}</td>
+                            <td>{c.order_count}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#30d158' }}>{formatCurrency(c.lifetime_revenue)}</td>
+                            <td style={{ color: 'var(--text-muted)' }}>{c.first_order_date}</td>
+                            <td>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                fontSize: 'var(--text-xs)',
+                                background: chColor.bg,
+                                color: chColor.fg,
+                              }}>{c.first_touch_channel}</span>
+                            </td>
+                            <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.first_campaign || '—'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
                 <div style={{ marginTop: 'var(--space-md)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  ⚠️ Customer emails are hashed for privacy. First-touch = channel of earliest attributed order. LTV = all orders from this customer in the lookback window.
+                  First-touch = channel of earliest attributed order. Customer emails masked (j***@domain.com). Click order # in Shopify to see full details.
                 </div>
               </div>
             </>
