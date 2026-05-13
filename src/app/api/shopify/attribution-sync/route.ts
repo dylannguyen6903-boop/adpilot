@@ -165,11 +165,23 @@ export async function POST(request: Request) {
     }
 
     // Extract campaign IDs and candidate names from orders for lookup
+    // TKT-00262: Split utm_campaign into numeric IDs vs non-numeric candidate names
     const campaignIds: string[] = [];
     const candidateNames: string[] = [];
+
+    const isLikelyCampaignId = (val: string): boolean => /^\d{5,}$/.test(val.trim());
+
     for (const order of allOrders) {
       const utm = order.customerJourneySummary?.firstVisit?.utmParameters;
-      if (utm?.campaign) campaignIds.push(String(utm.campaign).trim());
+      if (utm?.campaign) {
+        const raw = String(utm.campaign).trim();
+        if (isLikelyCampaignId(raw)) {
+          campaignIds.push(raw);
+        } else if (raw) {
+          // Non-numeric utm_campaign: treat as campaign name for name-based matching
+          candidateNames.push(raw.toLowerCase());
+        }
+      }
       if (utm?.source) {
         const normSource = String(utm.source).trim().toLowerCase();
         // Exclude generic platform names - only pass potential campaign names
@@ -179,8 +191,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // Build campaign lookup (now includes name-based matching per TKT-00240 P1-3)
-    const lookup = await buildCampaignLookup([...new Set(campaignIds)], candidateNames);
+    // Build campaign lookup (includes name-based matching per TKT-00240 P1-3)
+    const lookup = await buildCampaignLookup([...new Set(campaignIds)], [...new Set(candidateNames)]);
 
     // Load collection cache
     const { data: cachedCollections } = await supabaseAdmin

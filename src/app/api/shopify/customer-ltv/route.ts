@@ -60,12 +60,32 @@ export async function GET(request: NextRequest) {
     };
 
     // ─── Fetch all orders with customer email in date range ───
-    const { data: orders, error: ordError } = await supabaseAdmin
-      .from('order_attributions')
-      .select('customer_email, customer_display_email, shopify_order_name, total_revenue, order_date, attribution_type, matched_campaign_id, matched_campaign_name, is_returning_customer')
-      .not('customer_email', 'is', null)
-      .gte('order_date', fromDateStr)
-      .lte('order_date', toDateStr);
+    // TKT-00262: Backward-compatible select. Try with display_email, fall back without it
+    let orders;
+    let ordError;
+    {
+      const res = await supabaseAdmin
+        .from('order_attributions')
+        .select('customer_email, customer_display_email, shopify_order_name, total_revenue, order_date, attribution_type, matched_campaign_id, matched_campaign_name, is_returning_customer')
+        .not('customer_email', 'is', null)
+        .gte('order_date', fromDateStr)
+        .lte('order_date', toDateStr);
+
+      if (res.error?.message?.includes('customer_display_email')) {
+        // Column doesn't exist yet (pre-migration), select without it
+        const fallback = await supabaseAdmin
+          .from('order_attributions')
+          .select('customer_email, shopify_order_name, total_revenue, order_date, attribution_type, matched_campaign_id, matched_campaign_name, is_returning_customer')
+          .not('customer_email', 'is', null)
+          .gte('order_date', fromDateStr)
+          .lte('order_date', toDateStr);
+        orders = fallback.data;
+        ordError = fallback.error;
+      } else {
+        orders = res.data;
+        ordError = res.error;
+      }
+    }
 
     if (ordError) {
       return NextResponse.json({ error: ordError.message }, { status: 500 });
@@ -106,7 +126,7 @@ export async function GET(request: NextRequest) {
       if (!customerMap.has(email)) {
         customerMap.set(email, {
           email,
-          display_email: (ord.customer_display_email as string) || null,
+          display_email: ((ord as Record<string, unknown>).customer_display_email as string) || null,
           orders: [],
           total_revenue: 0,
         });

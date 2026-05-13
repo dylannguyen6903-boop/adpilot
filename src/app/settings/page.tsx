@@ -67,6 +67,10 @@ export default function SettingsPage() {
   const [fbMsg, setFbMsg] = useState('');
   const [shopifyMsg, setShopifyMsg] = useState('');
 
+  // Attribution Backfill (TKT-00262)
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState('');
+
   // AI Config state
   const [aiProvider, setAiProvider] = useState('openai');
   const [aiApiKey, setAiApiKey] = useState('');
@@ -542,6 +546,65 @@ export default function SettingsPage() {
                   <span className="form-helper">Điểm &lt; ngưỡng này = KILL (mặc định: 0.2)</span>
                 </div>
               </div>
+            </div>
+
+            {/* Attribution Backfill (TKT-00262) */}
+            <div className="card" id="settings-backfill">
+              <div className="card-header">
+                <div className="card-title">Attribution Backfill</div>
+                <span className="status-badge learning">
+                  <span className="status-dot" />
+                  Phase 2 LTV
+                </span>
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-md)', lineHeight: 1.6 }}>
+                Chạy attribution sync 90 ngày để populate đầy đủ dữ liệu Customer LTV. Quá trình này có thể mất 1-2 phút tùy số lượng orders.
+              </div>
+              {backfillMsg && (
+                <div style={{
+                  fontSize: 'var(--text-sm)',
+                  color: backfillMsg.startsWith('✅') ? 'var(--color-winner)' : backfillMsg.startsWith('⏳') ? '#ff9f0a' : 'var(--color-kill)',
+                  marginBottom: 'var(--space-md)',
+                  whiteSpace: 'pre-line',
+                }}>
+                  {backfillMsg}
+                </div>
+              )}
+              <button
+                className={`btn btn-primary ${backfilling ? 'syncing' : ''}`}
+                disabled={backfilling}
+                id="btn-attribution-backfill"
+                onClick={async () => {
+                  setBackfilling(true);
+                  setBackfillMsg('⏳ Đang chạy Attribution Backfill 90 ngày...');
+                  try {
+                    const res = await fetch('/api/shopify/attribution-sync?days=90&confirm=true', {
+                      headers: apiHeaders(),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                      const coverage = data.coverage ? Object.entries(data.coverage).map(([k, v]) => `  ${k}: ${v}`).join('\n') : '';
+                      setBackfillMsg(
+                        `✅ Backfill hoàn tất!\n` +
+                        `Orders xử lý: ${data.ordersProcessed}\n` +
+                        `Orders lưu: ${data.ordersUpserted}\n` +
+                        `Items: ${data.itemsInserted}\n` +
+                        `Campaigns: ${data.campaignsInLookup}\n` +
+                        `Thời gian: ${(data.durationMs / 1000).toFixed(1)}s\n` +
+                        (coverage ? `\nPhân loại:\n${coverage}` : '')
+                      );
+                    } else {
+                      setBackfillMsg(`❌ ${data.error || 'Backfill thất bại'}\n${data.detail || ''}`);
+                    }
+                  } catch {
+                    setBackfillMsg('❌ Backfill thất bại (timeout hoặc lỗi mạng)');
+                  } finally {
+                    setBackfilling(false);
+                  }
+                }}
+              >
+                {backfilling ? 'Đang chạy...' : '🔄 Chạy 90-day Attribution Backfill'}
+              </button>
             </div>
 
             {/* AI Configuration */}
