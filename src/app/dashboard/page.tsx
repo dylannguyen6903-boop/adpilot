@@ -85,6 +85,49 @@ interface CollectionsApiResponse {
   collections: CollectionItem[];
 }
 
+interface CustomerLtvApiResponse {
+  period: string;
+  methodology: string;
+  summary: {
+    total_customers: number;
+    total_orders: number;
+    total_revenue: number;
+    avg_ltv: number;
+    avg_orders_per_customer: number;
+    repeat_rate: number;
+    repeat_customers: number;
+    total_fb_spend: number;
+    fb_cac: number;
+    fb_ltv_cac_ratio: number;
+  };
+  channel_ltv: Array<{
+    channel: string;
+    customer_count: number;
+    total_revenue: number;
+    avg_ltv: number;
+    avg_orders: number;
+    repeat_rate: number;
+  }>;
+  cohorts: Array<{
+    cohort_month: string;
+    customer_count: number;
+    total_revenue: number;
+    avg_ltv: number;
+    repeat_count: number;
+    repeat_rate: number;
+    avg_orders: number;
+  }>;
+  top_customers: Array<{
+    email_hash: string;
+    order_count: number;
+    lifetime_revenue: number;
+    first_order_date: string;
+    last_order_date: string;
+    first_touch_channel: string;
+    first_campaign: string | null;
+  }>;
+}
+
 // ─── Constants ─────────────────────────────
 
 const CHART_COLORS = {
@@ -150,6 +193,10 @@ export default function DashboardPage() {
   // Disable collections fetch when specific ad account is selected (no account filtering support yet)
   const collectionsUrl = selectedAccount ? null : `/api/shopify/collections?days=${days}${dateParam}`;
   const { data: collectionsData, loading: collectionsLoading, error: collectionsError } = useApiData<CollectionsApiResponse>(collectionsUrl);
+
+  // Phase 2: Customer LTV (always 90-day lookback, all accounts)
+  const ltvUrl = selectedAccount ? null : `/api/shopify/customer-ltv?days=90${dateParam}`;
+  const { data: ltvData, loading: ltvLoading, error: ltvError } = useApiData<CustomerLtvApiResponse>(ltvUrl);
 
   const coreErrors = [marginError, campaignsError].filter(Boolean);
   const hasDataError = coreErrors.length > 0;
@@ -495,6 +542,170 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        {/* ═══════════════════════════════════════════
+            Customer LTV Section (Phase 2)
+            ═══════════════════════════════════════════ */}
+        <div className="collection-section" id="customer-ltv-section">
+          <div className="collection-section-header">
+            <div className="collection-section-title">
+              👤 Customer LTV
+              <span className="collection-section-badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>Phase 2</span>
+            </div>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              {selectedAccount ? 'Chọn "Tất cả tài khoản" để xem' : ltvData?.period || '90 ngày • Tất cả tài khoản'}
+            </span>
+          </div>
+
+          {selectedAccount ? (
+            <div className="card" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
+              <div style={{ fontSize: 'var(--text-xl)', marginBottom: 'var(--space-sm)' }}>🔍</div>
+              <div style={{ color: 'var(--text-secondary)' }}>Customer LTV hiện chỉ hỗ trợ xem tất cả tài khoản.</div>
+            </div>
+          ) : ltvError ? (
+            <div className="card" style={{ padding: 'var(--space-md)', border: '1px solid var(--color-watch)', background: 'rgba(255,159,10,0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                <span>⚠️</span>
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--color-watch)' }}>Customer LTV không tải được</div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{ltvError}</div>
+                </div>
+              </div>
+            </div>
+          ) : ltvLoading ? (
+            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-2xl)' }}>
+              <div className="loading-spinner"></div>
+              <span style={{ marginLeft: 'var(--space-md)', color: 'var(--text-muted)' }}>Đang tải Customer LTV...</span>
+            </div>
+          ) : ltvData && ltvData.summary.total_customers > 0 ? (
+            <>
+              {/* LTV KPIs */}
+              <div className="collection-kpi-row">
+                <div className="collection-kpi">
+                  <div className="collection-kpi-label">Customers</div>
+                  <div className="collection-kpi-value" style={{ color: '#818cf8' }}>{formatNumber(ltvData.summary.total_customers)}</div>
+                </div>
+                <div className="collection-kpi">
+                  <div className="collection-kpi-label">Avg LTV</div>
+                  <div className="collection-kpi-value" style={{ color: '#30d158' }}>{formatCurrency(ltvData.summary.avg_ltv)}</div>
+                </div>
+                <div className="collection-kpi">
+                  <div className="collection-kpi-label">Repeat Rate</div>
+                  <div className="collection-kpi-value" style={{ color: ltvData.summary.repeat_rate >= 10 ? '#30d158' : '#ff9f0a' }}>{ltvData.summary.repeat_rate}%</div>
+                </div>
+                <div className="collection-kpi">
+                  <div className="collection-kpi-label">FB CAC</div>
+                  <div className="collection-kpi-value" style={{ color: '#ff9f0a' }}>{formatCurrency(ltvData.summary.fb_cac)}</div>
+                </div>
+                <div className="collection-kpi">
+                  <div className="collection-kpi-label">LTV/CAC</div>
+                  <div className="collection-kpi-value" style={{ color: ltvData.summary.fb_ltv_cac_ratio >= 3 ? '#30d158' : ltvData.summary.fb_ltv_cac_ratio >= 1 ? '#ff9f0a' : '#ff453a' }}>
+                    {ltvData.summary.fb_ltv_cac_ratio > 0 ? `${ltvData.summary.fb_ltv_cac_ratio.toFixed(1)}x` : '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Channel LTV Bar Chart */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-lg)' }}>
+                <div className="card" style={{ padding: 'var(--space-lg)' }}>
+                  <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-md)', color: 'var(--text-primary)' }}>Avg LTV by Acquisition Channel</h3>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={ltvData.channel_ltv} layout="vertical" margin={{ left: 20, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: '#8e8e93' }} tickFormatter={(v: number) => `$${v}`} />
+                      <YAxis type="category" dataKey="channel" tick={{ fontSize: 11, fill: '#8e8e93' }} width={100} />
+                      <Tooltip
+                        contentStyle={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                        formatter={(value: unknown) => [`$${Number(value).toFixed(2)}`, 'Avg LTV']}
+                      />
+                      <Bar dataKey="avg_ltv" fill="#818cf8" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Cohort Summary */}
+                <div className="card" style={{ padding: 'var(--space-lg)' }}>
+                  <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-md)', color: 'var(--text-primary)' }}>Monthly Cohorts</h3>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="campaign-table" style={{ fontSize: 'var(--text-xs)' }}>
+                      <thead>
+                        <tr>
+                          <th>COHORT</th>
+                          <th>CUSTOMERS</th>
+                          <th>AVG LTV</th>
+                          <th>REPEAT %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ltvData.cohorts.map(c => (
+                          <tr key={c.cohort_month}>
+                            <td style={{ fontWeight: 600 }}>{c.cohort_month}</td>
+                            <td>{c.customer_count}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)' }}>{formatCurrency(c.avg_ltv)}</td>
+                            <td>
+                              <span style={{ color: c.repeat_rate >= 10 ? '#30d158' : '#ff9f0a' }}>{c.repeat_rate}%</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top Customers Table */}
+              <div className="card" style={{ padding: 'var(--space-lg)' }}>
+                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-md)', color: 'var(--text-primary)' }}>Top Customers by Lifetime Revenue</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="campaign-table" style={{ fontSize: 'var(--text-xs)' }}>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>CUSTOMER</th>
+                        <th>ORDERS</th>
+                        <th>LIFETIME REV</th>
+                        <th>FIRST ORDER</th>
+                        <th>CHANNEL</th>
+                        <th>FIRST CAMPAIGN</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ltvData.top_customers.map((c, i) => (
+                        <tr key={c.email_hash}>
+                          <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>{c.email_hash}</td>
+                          <td>{c.order_count}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#30d158' }}>{formatCurrency(c.lifetime_revenue)}</td>
+                          <td style={{ color: 'var(--text-muted)' }}>{c.first_order_date}</td>
+                          <td>
+                            <span style={{ 
+                              padding: '2px 8px', 
+                              borderRadius: 4, 
+                              fontSize: 'var(--text-xs)',
+                              background: c.first_touch_channel === 'FB Attributed' ? 'rgba(10,132,255,0.15)' : 'rgba(255,159,10,0.15)',
+                              color: c.first_touch_channel === 'FB Attributed' ? '#0a84ff' : '#ff9f0a'
+                            }}>{c.first_touch_channel}</span>
+                          </td>
+                          <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.first_campaign || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: 'var(--space-md)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  ⚠️ Customer emails are hashed for privacy. First-touch = channel of earliest attributed order. LTV = all orders from this customer in the lookback window.
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="card" style={{ padding: 'var(--space-2xl)', textAlign: 'center' }}>
+              <div style={{ fontSize: 'var(--text-3xl)', marginBottom: 'var(--space-md)' }}>👤</div>
+              <div style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)' }}>Customer LTV chưa có dữ liệu</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Chạy Attribution Sync trong Settings để bắt đầu.</div>
+            </div>
+          )}
+        </div>
+
       </PageContainer>
     </>
   );
