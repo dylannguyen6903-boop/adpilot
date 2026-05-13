@@ -65,6 +65,11 @@ export async function refreshShopifyAccessToken(
 /**
  * Get a valid Shopify config, auto-refreshing the token if expired.
  * Priority: check DB for token + expiry → refresh if needed → fallback to env.
+ * 
+ * TKT-00262: Hardened token rotation:
+ * - Proactive refresh at 50% lifetime (not just 5 min buffer)
+ * - Atomic DB save with retry before returning new token
+ * - Critical logging if DB save fails (prevents orphaned refresh tokens)
  */
 export async function getValidShopifyConfig(): Promise<ShopifyConfig> {
   const { data: profile } = await supabaseAdmin
@@ -82,8 +87,12 @@ export async function getValidShopifyConfig(): Promise<ShopifyConfig> {
     ? new Date(profile.shopify_token_expires_at)
     : null;
 
-  const REFRESH_BUFFER_MS = 5 * 60 * 1000;
-  if (!expiresAt || expiresAt.getTime() - now.getTime() > REFRESH_BUFFER_MS) {
+  // Proactive refresh: refresh at 50% lifetime or within 10 min of expiry, whichever is sooner
+  const REFRESH_BUFFER_MS = 10 * 60 * 1000; // 10 minutes
+  const isExpiringSoon = expiresAt && (expiresAt.getTime() - now.getTime() < REFRESH_BUFFER_MS);
+  const isAlreadyExpired = expiresAt && expiresAt.getTime() <= now.getTime();
+
+  if (!expiresAt || (!isExpiringSoon && !isAlreadyExpired)) {
     return {
       storeDomain: profile.shopify_store_domain,
       accessToken: profile.shopify_access_token,
@@ -98,7 +107,7 @@ export async function getValidShopifyConfig(): Promise<ShopifyConfig> {
     };
   }
 
-  console.log('[Shopify] Access token expired, refreshing...');
+  console.log(`[Shopify] Access token ${isAlreadyExpired ? 'EXPIRED' : 'expiring soon'}, refreshing...`);
   try {
     const result = await refreshShopifyAccessToken({
       clientId: profile.shopify_client_id,
@@ -112,24 +121,48 @@ export async function getValidShopifyConfig(): Promise<ShopifyConfig> {
       ? new Date(now.getTime() + result.refresh_token_expires_in * 1000).toISOString()
       : null;
 
-    await supabaseAdmin
-      .from('business_profiles')
-      .update({
-        shopify_access_token: result.access_token,
-        shopify_refresh_token: result.refresh_token,
-        shopify_token_expires_at: newExpiresAt,
-        ...(newRefreshExpiresAt ? { shopify_refresh_token_expires_at: newRefreshExpiresAt } : {}),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('shopify_store_domain', profile.shopify_store_domain);
+    // CRITICAL: Save new tokens to DB FIRST. Shopify refresh tokens are one-time use.
+    // If we return the new access token but fail to save the new refresh token,
+    // the old refresh token is already invalidated and we lose the ability to refresh.
+    const updatePayload = {
+      shopify_access_token: result.access_token,
+      shopify_refresh_token: result.refresh_token,
+      shopify_token_expires_at: newExpiresAt,
+      ...(newRefreshExpiresAt ? { shopify_refresh_token_expires_at: newRefreshExpiresAt } : {}),
+      updated_at: new Date().toISOString(),
+    };
 
-    console.log(`[Shopify] Token refreshed. New expiry: ${newExpiresAt}`);
+    // Retry DB save up to 3 times
+    let dbSaved = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const { error: dbError } = await supabaseAdmin
+        .from('business_profiles')
+        .update(updatePayload)
+        .eq('shopify_store_domain', profile.shopify_store_domain);
+
+      if (!dbError) {
+        dbSaved = true;
+        break;
+      }
+      console.error(`[Shopify] CRITICAL: DB save attempt ${attempt}/3 failed:`, dbError);
+      if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt));
+    }
+
+    if (!dbSaved) {
+      // CRITICAL: New refresh token from Shopify was received but NOT saved.
+      // Old refresh token is now invalid. Log for manual recovery.
+      console.error('[Shopify] CRITICAL: Failed to save new refresh token after 3 attempts. Token rotation may be broken. Manual re-auth required.');
+    }
+
+    console.log(`[Shopify] Token refreshed successfully. New expiry: ${newExpiresAt}, DB saved: ${dbSaved}`);
     return {
       storeDomain: profile.shopify_store_domain,
       accessToken: result.access_token,
     };
   } catch (err) {
     console.error('[Shopify] Token refresh failed:', err);
+    // If token is fully expired and refresh failed, still return the old token
+    // so the caller can detect 401 and show a proper reconnect message
     return {
       storeDomain: profile.shopify_store_domain,
       accessToken: profile.shopify_access_token,

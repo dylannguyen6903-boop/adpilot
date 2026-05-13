@@ -525,33 +525,10 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Decision Thresholds */}
-            <div className="card" id="settings-thresholds">
+            {/* Attribution Backfill (TKT-00262) — Placed right after Shopify for visibility */}
+            <div className="card" id="settings-backfill" style={{ border: '1px solid rgba(99,102,241,0.3)' }}>
               <div className="card-header">
-                <div className="card-title">Ngưỡng Phân Loại</div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-                <div className="form-group">
-                  <label className="form-label">Ngưỡng điểm Winner</label>
-                  <input className="form-input" type="number" value={thresholdWinner} step={0.05} onChange={(e) => setThresholdWinner(Number(e.target.value))} />
-                  <span className="form-helper">Điểm ≥ ngưỡng này = WINNER (mặc định: 0.7)</span>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Ngưỡng điểm Promising</label>
-                  <input className="form-input" type="number" value={thresholdPromising} step={0.05} onChange={(e) => setThresholdPromising(Number(e.target.value))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Ngưỡng điểm Watch</label>
-                  <input className="form-input" type="number" value={thresholdWatch} step={0.05} onChange={(e) => setThresholdWatch(Number(e.target.value))} />
-                  <span className="form-helper">Điểm &lt; ngưỡng này = KILL (mặc định: 0.2)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Attribution Backfill (TKT-00262) */}
-            <div className="card" id="settings-backfill">
-              <div className="card-header">
-                <div className="card-title">Attribution Backfill</div>
+                <div className="card-title">🔄 Attribution Backfill</div>
                 <span className="status-badge learning">
                   <span className="status-dot" />
                   Phase 2 LTV
@@ -605,6 +582,29 @@ export default function SettingsPage() {
               >
                 {backfilling ? 'Đang chạy...' : '🔄 Chạy 90-day Attribution Backfill'}
               </button>
+            </div>
+
+            {/* Decision Thresholds */}
+            <div className="card" id="settings-thresholds">
+              <div className="card-header">
+                <div className="card-title">Ngưỡng Phân Loại</div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                <div className="form-group">
+                  <label className="form-label">Ngưỡng điểm Winner</label>
+                  <input className="form-input" type="number" value={thresholdWinner} step={0.05} onChange={(e) => setThresholdWinner(Number(e.target.value))} />
+                  <span className="form-helper">Điểm ≥ ngưỡng này = WINNER (mặc định: 0.7)</span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Ngưỡng điểm Promising</label>
+                  <input className="form-input" type="number" value={thresholdPromising} step={0.05} onChange={(e) => setThresholdPromising(Number(e.target.value))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Ngưỡng điểm Watch</label>
+                  <input className="form-input" type="number" value={thresholdWatch} step={0.05} onChange={(e) => setThresholdWatch(Number(e.target.value))} />
+                  <span className="form-helper">Điểm &lt; ngưỡng này = KILL (mặc định: 0.2)</span>
+                </div>
+              </div>
             </div>
 
             {/* AI Configuration */}
